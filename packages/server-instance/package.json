@@ -7,9 +7,21 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./state": "./src/state.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "test": "tsx --test test/instanceRoom.test.ts test/intentMove.test.ts"
+  },
+  "dependencies": {
+    "@game/shared": "*",
+    "colyseus": "^0.18.7"
+  },
+  "devDependencies": {
+    "@colyseus/sdk": "^0.18.3",
+    "tsx": "^4.23.15"
   }
 }

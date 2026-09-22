@@ -10,9 +10,19 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "tsx --test test/movement.test.ts"
   },
   "dependencies": {
-    "@game/shared": "*"
+    "@colyseus/sdk": "^0.18.3",
+    "@game/shared": "*",
+    "phaser": "^4.2.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15",
+    "vite": "^8.3.0"
   }
 }
