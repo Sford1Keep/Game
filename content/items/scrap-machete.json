@@ -1,0 +1,11 @@
+{
+  "id": "scrap-machete",
+  "name": "Обрезок-мачете",
+  "kind": "weapon",
+  "faction": "techno",
+  "modifiers": [
+    { "stat": "damage", "flat": 7, "pct": 0 },
+    { "stat": "moveSpeed", "flat": 0, "pct": 3 }
+  ],
+  "spriteId": "item_scrap_machete"
+}
