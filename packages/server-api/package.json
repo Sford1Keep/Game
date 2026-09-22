@@ -1,0 +1,15 @@
+{
+  "name": "@game/server-api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "HTTP/REST: аккаунты, инвентарь вне боя, гильдии, аукцион, лидерборды (TECH-SPEC 2, 3)",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

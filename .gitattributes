@@ -1,0 +1,11 @@
+# Нормализация переводов строк: в репозитории и в рабочих копиях — LF.
+# Без этого core.autocrlf=true на Windows выдаёт CRLF, и `prettier --check`
+# (endOfLine: "lf") падает на свежем клоне.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.webp binary
+*.ttf binary
+*.woff binary
+*.woff2 binary

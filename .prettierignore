@@ -1,0 +1,7 @@
+node_modules/
+dist/
+coverage/
+package-lock.json
+
+# Docs are hand-authored; Prettier would reflow tables and Cyrillic prose.
+**/*.md
