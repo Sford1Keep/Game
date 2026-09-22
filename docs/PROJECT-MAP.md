@@ -22,7 +22,7 @@
 | `shared` | Общие типы, схемы данных, константы, формулы — используется и клиентом, и сервером | 1, 3, 5 | Базовые типы заданы (T-002), см. структуру ниже |
 | `server-api` | HTTP/REST: аккаунты, инвентарь вне боя, гильдии, аукцион, лидерборды, квестовый прогресс | 1, 2, 5 | Каркас, ждёт T-003 |
 | `server-instance` | Colyseus-приложение: боевая логика, зоны, испытания, гильд-рейды (комнаты) | 1, 2, 4 | Базовая комната + движение (T-005, T-006), см. структуру ниже |
-| `client` | Phaser-клиент + отделённый от рендера слой игровой логики (game-core) | 1, 3, 9.2 | Каркас, ждёт T-007 |
+| `client` | Phaser-клиент + отделённый от рендера слой игровой логики (game-core) | 1, 3, 9.2 | Подключение к инстансу и рендер персонажей (T-007), см. структуру ниже |
 
 ## `packages/shared` — состав (T-002)
 
@@ -34,7 +34,21 @@
 | `src/ids.ts` | `Id<K>` (брендированная строка), `AccountId` / `CharacterId` / `InstanceId` + конструкторы `toAccountId` / `toCharacterId` / `toInstanceId` на границах. Разные домены между собой не подставляются, голая `string` в `AccountId` не присваивается |
 | `src/status.ts` | `AccountStatus`, `CharacterStatus` — **значения предложены исполнителем**, в GDD/TECH-SPEC не заданы, ждут утверждения лидом |
 
-Файлы `packages/server-api/src/shared-types-stub.ts` и `packages/client/src/shared-types-stub.ts` — проверочные импорты-стабы из критерия приёмки T-002. Реальное использование заменит их в T-003/T-007, отдельной задачи на удаление не заводим.
+Файл `packages/server-api/src/shared-types-stub.ts` — проверочный импорт-стаб из критерия приёмки T-002 (реальное использование придёт с T-003). Клиентский стаб удалён в T-007: `game-core/world.ts` использует `Vector2` по назначению.
+
+## `packages/client` — состав (T-007)
+
+Слои разделены по правилу TECH-SPEC 3: `game-core` не импортирует Phaser/DOM/Colyseus, `net` — единственный, кто знает про транспорт, `render` только читает game-core.
+
+| Модуль | Содержимое |
+|---|---|
+| `src/game-core/world.ts` | `WorldStore` — чистая TS-модель мира: реестр игроков (`id`, `position: Vector2`), `replace()` для снятия снапшота, `roster()` для рендера, `localId` для выделения локального игрока |
+| `src/net/instanceSession.ts` | `connectInstance(url, room, world)` — адаптер Colyseus SDK: join комнаты, `sync()` перекладывает `state.players` в `WorldStore`. Schema состояния берётся из `@game/server-instance/state` (subpath-экспорт, чтобы не тянуть серверный код в бандл) |
+| `src/render/instanceScene.ts` | Phaser 4 сцена: плейсхолдер-квадраты по позициям + HUD со списком сессий; мировые координаты → пиксели (`PX_PER_UNIT`), арт не подключается (TECH-SPEC 9.2) |
+| `src/main.ts` | Бутстрап: сборка слоёв, URL сервера `?server=...` (дефолт `ws://127.0.0.1:2600`), опрос state из rAF с setTimeout-фолбэком для скрытой вкладки, dev-хуки `window.__gameWorld` / `__gameSync` |
+| `index.html`, vite | Дев-обвязка: `npm run dev -w @game/client` |
+
+Проверка приёмки (вручную, браузеров в тестах нет): страница `http://localhost:5173` показывает персонажа; node-клиент, зашедший вторым, появляется в roster браузера и исчезает при leave.
 
 ## `packages/server-instance` — состав (T-005, T-006)
 
