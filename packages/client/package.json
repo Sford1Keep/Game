@@ -10,9 +10,17 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
   },
   "dependencies": {
-    "@game/shared": "*"
+    "@colyseus/sdk": "^0.18.3",
+    "@game/shared": "*",
+    "phaser": "^4.2.1"
+  },
+  "devDependencies": {
+    "vite": "^8.3.0"
   }
 }
