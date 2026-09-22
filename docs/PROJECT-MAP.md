@@ -21,7 +21,7 @@
 |---|---|---|---|
 | `shared` | Общие типы, схемы данных, константы, формулы — используется и клиентом, и сервером | 1, 3, 5 | Базовые типы заданы (T-002), см. структуру ниже |
 | `server-api` | HTTP/REST: аккаунты, инвентарь вне боя, гильдии, аукцион, лидерборды, квестовый прогресс | 1, 2, 5 | Каркас, ждёт T-003 |
-| `server-instance` | Colyseus-приложение: боевая логика, зоны, испытания, гильд-рейды (комнаты) | 1, 2, 4 | Базовая комната инстанса (T-005), см. структуру ниже |
+| `server-instance` | Colyseus-приложение: боевая логика, зоны, испытания, гильд-рейды (комнаты) | 1, 2, 4 | Базовая комната + движение (T-005, T-006), см. структуру ниже |
 | `client` | Phaser-клиент + отделённый от рендера слой игровой логики (game-core) | 1, 3, 9.2 | Каркас, ждёт T-007 |
 
 ## `packages/shared` — состав (T-002)
@@ -36,17 +36,18 @@
 
 Файлы `packages/server-api/src/shared-types-stub.ts` и `packages/client/src/shared-types-stub.ts` — проверочные импорты-стабы из критерия приёмки T-002. Реальное использование заменит их в T-003/T-007, отдельной задачи на удаление не заводим.
 
-## `packages/server-instance` — состав (T-005)
+## `packages/server-instance` — состав (T-005, T-006)
 
-Точка входа `src/index.ts` реэкспортирует наружу комнату, state и `startServer`. Комната регистрируется в матчмейкинге под именем `INSTANCE_ROOM_NAME` (`'instance'`) — клиент подключается по нему (Colyseus SDK, `joinOrCreate`).
+Точка входа `src/index.ts` реэкспортирует наружу комнату, state, сообщения и `startServer`. Комната регистрируется в матчмейкинге под именем `INSTANCE_ROOM_NAME` (`'instance'`) — клиент подключается по нему (Colyseus SDK, `joinOrCreate`).
 
 | Модуль | Содержимое |
 |---|---|
 | `src/state.ts` | Schema-классы состояния комнаты на новом API `schema()`/`t.*` (schema 5.x, без decorators): `PlayerState` (`x`, `y`), `InstanceState` (`players: MapSchema<PlayerState>`, ключ — `sessionId`), `SPAWN_POINT` — начальная позиция (`Vector2` из shared) |
-| `src/rooms/baseInstanceRoom.ts` | `BaseInstanceRoom` — минимальная комната: жизненный цикл `onCreate`/`onJoin`/`onLeave`/`onDispose` (join добавляет игрока в state на спавне, leave удаляет; reconnect/auth вне скоупа Фазы 0). `intent.move` — T-006 |
+| `src/rooms/baseInstanceRoom.ts` | `BaseInstanceRoom` — комната инстанса: жизненный цикл `onCreate`/`onJoin`/`onLeave`/`onDispose` (join добавляет игрока на спавне, leave удаляет; reconnect/auth вне скоупа Фазы 0) + обработчик `intent.move` (T-006): сервер авторитетно применяет валидное смещение к позиции, state sync расходится встроенным механизмом (TECH-SPEC 4) |
+| `src/messages.ts` | Прикладные client→server намерения: `MoveIntent` (`dx`/`dy`) и `parseMoveIntent` — чистая валидация payload (мусор/NaN/Infinity отклоняются без изменения позиции) |
 | `src/config.ts` | `loadConfig`: `INSTANCE_PORT` (по умолчанию 2600), `INSTANCE_HOSTNAME` (127.0.0.1) |
 | `src/index.ts` | `startServer(config)` — Server + WebSocketTransport, `define` комнаты, возврат `{ server, port }`; при прямом запуске (`npm start -w @game/server-instance`, `dev` — с watch) слушает конфиг из env |
-| `test/instanceRoom.test.ts` | Интеграционный тест (node:test + `@colyseus/sdk`): два клиента заходят, видят друг друга в state, при leave игрок пропадает; сервер на порту 0 |
+| `test/instanceRoom.test.ts`, `test/intentMove.test.ts`, `test/helpers.ts` | Интеграционные тесты (node:test + `@colyseus/sdk`, сервер на порту 0): join/leave видимость в state; `intent.move` доходит до остальных, невалидный payload отклоняется; `waitFor` — опрос асинхронного state sync |
 
 ## `/content`
 
