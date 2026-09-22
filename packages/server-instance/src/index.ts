@@ -7,9 +7,10 @@ import { Server, WebSocketTransport } from 'colyseus';
 import { type InstanceConfig, loadConfig } from './config.js';
 import { BaseInstanceRoom } from './rooms/baseInstanceRoom.js';
 
-// Единая точка входа пакета (TECH-SPEC 3, 7): наружу — комната, state и запуск.
+// Единая точка входа пакета (TECH-SPEC 3, 7): наружу — комната, state, сообщения и запуск.
 export { BaseInstanceRoom } from './rooms/baseInstanceRoom.js';
 export { InstanceState, PlayerState, SPAWN_POINT } from './state.js';
+export { parseMoveIntent, type MoveIntent } from './messages.js';
 
 /** Имя комнаты в матчмейкинге — под ним клиент просит инстанс (TECH-SPEC 2, 4). */
 export const INSTANCE_ROOM_NAME = 'instance';

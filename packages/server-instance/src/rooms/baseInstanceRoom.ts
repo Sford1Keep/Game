@@ -1,15 +1,30 @@
 import { type Client, Room } from 'colyseus';
 
+import { parseMoveIntent } from '../messages.js';
 import { InstanceState, PlayerState, SPAWN_POINT } from '../state.js';
 
 /**
- * Минимальная комната инстанса (T-005): жизненный цикл Colyseus и репликация
- * позиции игрока в state. Обработка намерений (`intent.move`) и боёвка —
- * следующие задачи (T-006+), здесь их намеренно нет.
+ * Комната инстанса: жизненный цикл Colyseus, репликация позиции игрока в state
+ * (T-005) и авторитетное применение намерения движения (T-006).
+ * Сервер — источник истины по позициям (TECH-SPEC 1, 4): `intent.move`
+ * применяет смещение к состоянию игрока, дельты расходятся встроенным state
+ * sync. Коллизии/физика/тики боёвки — следующие фазы, здесь их намеренно нет.
  */
 export class BaseInstanceRoom extends Room<{ state: InstanceType<typeof InstanceState> }> {
   override onCreate(): void {
     this.state = new InstanceState();
+
+    this.onMessage('intent.move', (client, raw: unknown) => {
+      const intent = parseMoveIntent(raw);
+      const player = this.state.players.get(client.sessionId);
+      if (intent === undefined || player === undefined) {
+        console.warn(`[server-instance] отклонён intent.move от ${client.sessionId}`);
+        return;
+      }
+      player.x += intent.dx;
+      player.y += intent.dy;
+    });
+
     console.warn(`[server-instance] комната создана: ${this.roomId}`);
   }
 

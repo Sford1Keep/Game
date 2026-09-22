@@ -6,6 +6,7 @@ import { Client } from '@colyseus/sdk';
 import { loadConfig } from '../src/config.js';
 import { INSTANCE_ROOM_NAME, startServer, type RunningInstanceServer } from '../src/index.js';
 import { InstanceState, SPAWN_POINT } from '../src/state.js';
+import { waitFor } from './helpers.js';
 
 let running: RunningInstanceServer;
 let url: string;
@@ -19,20 +20,6 @@ before(async () => {
 after(async () => {
   await running.server.gracefullyShutdown(false);
 });
-
-const waitFor = async (
-  predicate: () => boolean,
-  message: string,
-  timeoutMs = 5_000,
-): Promise<void> => {
-  const deadline = Date.now() + timeoutMs;
-  while (!predicate()) {
-    if (Date.now() > deadline) {
-      assert.fail(message);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-};
 
 test('игрок появляется в state при join и пропадает при leave', async () => {
   const clientA = new Client(url);
