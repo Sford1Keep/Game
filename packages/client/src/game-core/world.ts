@@ -28,6 +28,18 @@ export class WorldStore {
     return [...this.players.values()].sort((a, b) => a.id.localeCompare(b.id));
   }
 
+  /** Позиция локального игрока из предсказания — рендерит её, а не снапшот сервера. */
+  setLocalPosition(pos: Vector2): void {
+    const local = this.players.get(this.localId);
+    if (local !== undefined) {
+      local.position = { x: pos.x, y: pos.y };
+    }
+  }
+
+  get(id: string): WorldPlayer | undefined {
+    return this.players.get(id);
+  }
+
   get size(): number {
     return this.players.size;
   }

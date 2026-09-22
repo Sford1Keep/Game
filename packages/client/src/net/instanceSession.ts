@@ -12,6 +12,8 @@ export interface InstanceSession {
   sessionId: string;
   /** Опрос обновлений state — вызывается из цикла рендера. */
   sync(): void;
+  /** Намерение движения на сервер (TECH-SPEC 4): смещение dx/dy. */
+  sendMove(dx: number, dy: number): void;
   leave(): Promise<void>;
 }
 
@@ -31,6 +33,9 @@ export const connectInstance = async (
         players.push({ id, position: { x: p.x, y: p.y } });
       }
       world.replace(players);
+    },
+    sendMove(dx: number, dy: number): void {
+      room.send('intent.move', { dx, dy });
     },
     leave: async () => {
       await room.leave(true);
