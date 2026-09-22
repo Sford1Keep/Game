@@ -20,7 +20,7 @@
 | Пакет | Отвечает за | Связанные разделы TECH-SPEC | Статус |
 |---|---|---|---|
 | `shared` | Общие типы, схемы данных, константы, формулы — используется и клиентом, и сервером | 1, 3, 5 | Базовые типы заданы (T-002), см. структуру ниже |
-| `server-api` | HTTP/REST: аккаунты, инвентарь вне боя, гильдии, аукцион, лидерборды, квестовый прогресс | 1, 2, 5 | Каркас, ждёт T-003 |
+| `server-api` | HTTP/REST: аккаунты, инвентарь вне боя, гильдии, аукцион, лидерборды, квестовый прогресс | 1, 2, 5 | Аккаунты: регистрация/вход (T-003), см. структуру ниже; остальное ждёт своих задач |
 | `server-instance` | Colyseus-приложение: боевая логика, зоны, испытания, гильд-рейды (комнаты) | 1, 2, 4 | Каркас, ждёт T-005 |
 | `client` | Phaser-клиент + отделённый от рендера слой игровой логики (game-core) | 1, 3, 9.2 | Каркас, ждёт T-007 |
 
@@ -32,9 +32,23 @@
 |---|---|
 | `src/geometry.ts` | `Vector2` — позиция/смещение на 2D-плоскости зоны |
 | `src/ids.ts` | `Id<K>` (брендированная строка), `AccountId` / `CharacterId` / `InstanceId` + конструкторы `toAccountId` / `toCharacterId` / `toInstanceId` на границах. Разные домены между собой не подставляются, голая `string` в `AccountId` не присваивается |
-| `src/status.ts` | `AccountStatus`, `CharacterStatus` — **значения предложены исполнителем**, в GDD/TECH-SPEC не заданы, ждут утверждения лидом |
+| `src/status.ts` | `AccountStatus`, `CharacterStatus` — значения предложены исполнителем, утверждены лидом при ревью T-002 |
 
-Файлы `packages/server-api/src/shared-types-stub.ts` и `packages/client/src/shared-types-stub.ts` — проверочные импорты-стабы из критерия приёмки T-002. Реальное использование заменит их в T-003/T-007, отдельной задачи на удаление не заводим.
+Файл `packages/client/src/shared-types-stub.ts` — проверочный импорт-стаб из критерия приёмки T-002. Стаб со стороны `server-api` удалён в T-003: типы теперь используются в реальном коде. Стаб клиента заменится реальным использованием в T-007, отдельной задачи на удаление не заводим.
+
+## `packages/server-api` — состав (T-003)
+
+Запускается через `tsx` (эмита нет, `noEmit` сохранён; `tsx` транслирует и TS-исходники `@game/shared` с enum'ами). Скрипты пакета: `dev` / `start` / `test`. Конфигурация — окружение (`DATABASE_URL`, `JWT_SECRET`, `PORT`), пример в `packages/server-api/.env.example`. Локальный dev-кластер PostgreSQL поднимается в `.local/pgdata` (порт 5433, каталог в `.gitignore`), команды — в том же `.env.example`.
+
+| Модуль | Содержимое |
+|---|---|
+| `src/config.ts` | `loadConfig(env)` — разбор конфигурации из переменных окружения |
+| `src/db/migrate.ts` | Простейший runner SQL-миграций (таблица `schema_migrations`, файл = транзакция) |
+| `src/migrations/0001_create_accounts.sql` | Таблица `accounts` (`id` — текст под `AccountId`, `login` unique, `password_hash`, `status` с CHECK по `AccountStatus`) |
+| `src/accounts/` | Домен аккаунтов: `password.ts` (scrypt-хеширование из `node:crypto`, без нативных зависимостей), `token.ts` (JWT HS256 через `jose`, `sub` = `AccountId`), `service.ts` (регистрация/аутентификация/`resolveSession`, типизированные доменные ошибки) |
+| `src/http/app.ts` | Express-приложение: `POST /accounts/register`, `POST /accounts/login`, `GET /healthz`; маппинг доменных ошибок в 400/401/403/409 |
+| `src/index.ts` | Точка входа: миграции → запуск HTTP-сервера; экспорт `startServer` для тестов |
+| `test/accounts.test.ts` | node:test: сквозная проверка критерия приёмки T-003 по HTTP против реального PostgreSQL |
 
 ## `/content`
 
