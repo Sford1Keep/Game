@@ -32,9 +32,10 @@ export const startServer = async (config: AppConfig): Promise<RunningServer> => 
   const accounts = new AccountService(pool, new TokenService(config.jwtSecret));
   const app = createApp(accounts);
 
-  const server = await new Promise<Server>((resolve, reject) => {
-    const s = app.listen(config.port, '127.0.0.1', () => resolve(s));
-    s.on('error', reject);
+  const server = app.listen(config.port, '127.0.0.1');
+  await new Promise<void>((resolve, reject) => {
+    server.once('listening', resolve);
+    server.once('error', reject);
   });
   const address = server.address();
   if (address === null || typeof address === 'string') {
@@ -49,10 +50,8 @@ const isMain =
 
 if (isMain) {
   const config = loadConfig(process.env);
-  const { server, pool } = await startServer(config);
-  console.warn(
-    `server-api: слушает http://127.0.0.1:${config.port === 0 ? '(случайный порт)' : config.port}`,
-  );
+  const { server, pool, port } = await startServer(config);
+  console.warn(`server-api: слушает http://127.0.0.1:${port}`);
 
   const shutdown = (): void => {
     server.close(() => {

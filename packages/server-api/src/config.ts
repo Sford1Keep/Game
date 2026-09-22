@@ -21,7 +21,8 @@ export const loadConfig = (env: NodeJS.ProcessEnv): AppConfig => {
     );
   }
 
-  const port = env.PORT !== undefined ? Number(env.PORT) : 8080;
+  // 18080, а не 8080: на dev-машинах 8080 может занят локальным сервисом.
+  const port = env.PORT !== undefined ? Number(env.PORT) : 18080;
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
     throw new Error(`PORT: некорректное значение ${JSON.stringify(env.PORT)}`);
   }
