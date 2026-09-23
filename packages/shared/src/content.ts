@@ -61,9 +61,51 @@ export interface MobConfig {
   moveSpeed: number;
   /** Радиус агро (мировые единицы): с этого расстояния моб начинает выбирать цель (T-015). */
   aggroRadius: number;
+  /**
+   * Радиус сброса агро; строго больше `aggroRadius` — гистерезис (T-020): цель
+   * удерживается между радиусами и теряется только за `resetRadius`. Иначе моб
+   * мигал бы целью на границе агро, преследуя игрока по кругу.
+   */
+  resetRadius: number;
+  /** Дистанция удара (мировые единицы): ближе неё моб считает цель достигнутой. */
+  attackRange: number;
+  /** Пауза между ударами одного моба, мс. */
+  attackIntervalMs: number;
   /** Награда за убийство (GDD 5): валюта и опыт. */
   gold: number;
   xp: number;
+  spriteId?: string;
+}
+
+export const MECHANIC_IDS = ['dodge'] as const;
+export type MechanicId = (typeof MECHANIC_IDS)[number];
+
+/**
+ * Конфиг игровой механики (T-020): уклонение — не `AbilityConfig` (нет цели
+ * и урона), но её параметры тоже баланс и тоже живут в `/content`, файл
+ * `content/mechanics/<id>.json`.
+ */
+export interface DodgeConfig {
+  id: MechanicId;
+  name: string;
+  /** Длина рывка в мировых единицах — та же шкала, что у `range` способностей. */
+  distance: number;
+  cooldownMs: number;
+}
+
+export type ClassId = Id<'Class'>;
+
+export const toClassId = (raw: string): ClassId => raw as ClassId;
+
+/**
+ * Конфиг класса игрока (GDD 5.1 — классы фракционно нейтральны). На T-020 —
+ * один класс-заглушка: персонажной системы ещё нет (T-004), но стартовые HP
+ * игрока уже обязаны приходить из `/content`, а не из константы комнаты.
+ */
+export interface ClassConfig {
+  id: ClassId;
+  name: string;
+  maxHp: number;
   spriteId?: string;
 }
 
@@ -182,6 +224,9 @@ export const parseMobConfig = (raw: unknown): MobConfig | undefined => {
   const damage = finiteNumber(raw.damage);
   const moveSpeed = finiteNumber(raw.moveSpeed);
   const aggroRadius = nonNegativeNumber(raw.aggroRadius);
+  const resetRadius = finiteNumber(raw.resetRadius);
+  const attackRange = nonNegativeNumber(raw.attackRange);
+  const attackIntervalMs = positiveNumber(raw.attackIntervalMs);
   const gold = finiteNumber(raw.gold);
   const xp = finiteNumber(raw.xp);
   if (
@@ -192,9 +237,16 @@ export const parseMobConfig = (raw: unknown): MobConfig | undefined => {
     damage === undefined ||
     moveSpeed === undefined ||
     aggroRadius === undefined ||
+    resetRadius === undefined ||
+    attackRange === undefined ||
+    attackIntervalMs === undefined ||
     gold === undefined ||
     xp === undefined
   ) {
+    return undefined;
+  }
+  // Гистерезис агро (T-020): радиус сброса обязан строго превышать радиус захвата.
+  if (resetRadius <= aggroRadius) {
     return undefined;
   }
   const spriteId = raw.spriteId === undefined ? undefined : nonEmptyString(raw.spriteId);
@@ -209,8 +261,54 @@ export const parseMobConfig = (raw: unknown): MobConfig | undefined => {
     damage,
     moveSpeed,
     aggroRadius,
+    resetRadius,
+    attackRange,
+    attackIntervalMs,
     gold,
     xp,
+    ...(spriteId !== undefined ? { spriteId } : {}),
+  };
+};
+
+/** Контроль конфига уклонения: механики вне `MECHANIC_IDS` и нулевой разбег — брак. */
+export const parseDodgeConfig = (raw: unknown): DodgeConfig | undefined => {
+  if (!isRecord(raw)) {
+    return undefined;
+  }
+  const id = oneOf(raw.id, MECHANIC_IDS);
+  const name = nonEmptyString(raw.name);
+  const distance = positiveNumber(raw.distance);
+  const cooldownMs = positiveNumber(raw.cooldownMs);
+  if (
+    id === undefined ||
+    name === undefined ||
+    distance === undefined ||
+    cooldownMs === undefined
+  ) {
+    return undefined;
+  }
+  return { id, name, distance, cooldownMs };
+};
+
+/** Контроль конфига класса: `maxHp` обязателен и положителен — от него живут стартовые HP. */
+export const parseClassConfig = (raw: unknown): ClassConfig | undefined => {
+  if (!isRecord(raw)) {
+    return undefined;
+  }
+  const id = nonEmptyString(raw.id);
+  const name = nonEmptyString(raw.name);
+  const maxHp = positiveNumber(raw.maxHp);
+  if (id === undefined || name === undefined || maxHp === undefined) {
+    return undefined;
+  }
+  const spriteId = raw.spriteId === undefined ? undefined : nonEmptyString(raw.spriteId);
+  if (raw.spriteId !== undefined && spriteId === undefined) {
+    return undefined;
+  }
+  return {
+    id: toClassId(id),
+    name,
+    maxHp,
     ...(spriteId !== undefined ? { spriteId } : {}),
   };
 };

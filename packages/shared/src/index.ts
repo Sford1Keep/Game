@@ -17,16 +17,24 @@ export type {
   MobConfig,
   AbilityConfig,
   AbilityStatus,
+  MechanicId,
+  DodgeConfig,
+  ClassId,
+  ClassConfig,
 } from './content.js';
 export {
   FACTIONS,
   ITEM_KINDS,
   STAT_IDS,
+  MECHANIC_IDS,
   toItemId,
   toMobId,
+  toClassId,
   parseItemConfig,
   parseMobConfig,
   parseAbilityConfig,
+  parseDodgeConfig,
+  parseClassConfig,
 } from './content.js';
 export type {
   AbilityId,

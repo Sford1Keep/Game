@@ -6,6 +6,9 @@
   "damage": 5,
   "moveSpeed": 3,
   "aggroRadius": 6,
+  "resetRadius": 10,
+  "attackRange": 1.5,
+  "attackIntervalMs": 1000,
   "gold": 8,
   "xp": 12,
   "spriteId": "mob_rust_scout"

@@ -4,12 +4,17 @@ import { test } from 'node:test';
 
 import {
   parseAbilityConfig,
+  parseClassConfig,
+  parseDodgeConfig,
   parseItemConfig,
   parseMobConfig,
   toAbilityId,
+  toClassId,
   toItemId,
   toMobId,
   type AbilityConfig,
+  type ClassConfig,
+  type DodgeConfig,
   type ItemConfig,
   type MobConfig,
 } from '../src/index.js';
@@ -164,4 +169,51 @@ test('content/abilities/marker-shot.json — AbilityConfig со статусом
     durationMs: 5000,
     damageMultiplier: 1.25,
   });
+});
+
+/** Баланс моба переехал из констант сервера в конфиг (T-020). */
+test('MobConfig: rust-scout несёт attackRange/attackIntervalMs/resetRadius', () => {
+  const parsed = parseMobConfig(readJson('../../../content/mobs/rust-scout.json'));
+  assert.ok(parsed);
+  const mob: MobConfig = parsed;
+  assert.ok(mob.attackRange > 0);
+  assert.ok(mob.attackIntervalMs > 0);
+  assert.ok(mob.resetRadius > mob.aggroRadius, 'сброс агро строго дальше захвата');
+});
+
+test('MobConfig: resetRadius <= aggroRadius и недостающие боевые поля бракуются', () => {
+  const base = parseMobConfig(readJson('../../../content/mobs/rust-scout.json'));
+  assert.ok(base);
+  // гистерезис agro: равенство и «сброс ближе захвата» — ошибка конфига
+  assert.equal(parseMobConfig({ ...base, resetRadius: base.aggroRadius }), undefined);
+  assert.equal(parseMobConfig({ ...base, resetRadius: base.aggroRadius - 1 }), undefined);
+  const { attackRange: _attackRange, ...noAttackRange } = base;
+  assert.equal(parseMobConfig(noAttackRange), undefined);
+  const { attackIntervalMs: _interval, ...noInterval } = base;
+  assert.equal(parseMobConfig(noInterval), undefined);
+  assert.equal(parseMobConfig({ ...base, attackIntervalMs: 0 }), undefined);
+});
+
+test('content/mechanics/dodge.json — валидный DodgeConfig, битые отклоняются', () => {
+  const parsed = parseDodgeConfig(readJson('../../../content/mechanics/dodge.json'));
+  assert.ok(parsed, 'конфиг уклонения не распознан');
+  const dodge: DodgeConfig = parsed;
+  assert.equal(dodge.id, 'dodge');
+  assert.ok(dodge.distance > 0 && dodge.cooldownMs > 0);
+
+  assert.equal(parseDodgeConfig({ ...dodge, id: 'sprint' }), undefined); // вне MECHANIC_IDS
+  assert.equal(parseDodgeConfig({ ...dodge, cooldownMs: 0 }), undefined);
+  assert.equal(parseDodgeConfig({ ...dodge, distance: -1 }), undefined);
+});
+
+test('content/classes/melee-initiate.json — валидный ClassConfig, maxHp обязателен', () => {
+  const parsed = parseClassConfig(readJson('../../../content/classes/melee-initiate.json'));
+  assert.ok(parsed, 'конфиг класса не распознан');
+  const cls: ClassConfig = parsed;
+  assert.equal(cls.id, toClassId('melee-initiate')); // имя файла = id
+  assert.ok(cls.maxHp > 0);
+
+  assert.equal(parseClassConfig({ id: 'x', name: 'x', maxHp: 0 }), undefined);
+  const { maxHp: _maxHp, ...noMaxHp } = cls;
+  assert.equal(parseClassConfig(noMaxHp), undefined);
 });
