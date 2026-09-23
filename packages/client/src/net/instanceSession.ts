@@ -19,8 +19,6 @@ export interface InstanceSession {
   sendAbility(abilityId: string): void;
   /** `intent.dodge` (T-014): направление рывка; длину сервер нормализует сам. */
   sendDodge(dir: Vector2): void;
-  /** Кулдауны локального игрока из авторитетного state (ключ → readyAtMs, T-017). */
-  localCooldowns(): Array<{ key: string; readyAtMs: number }>;
   leave(): Promise<void>;
 }
 
@@ -49,16 +47,6 @@ export const connectInstance = async (
     },
     sendDodge(dir: Vector2): void {
       room.send('intent.dodge', { dirX: dir.x, dirY: dir.y });
-    },
-    localCooldowns(): Array<{ key: string; readyAtMs: number }> {
-      const cooldowns: Array<{ key: string; readyAtMs: number }> = [];
-      const local = room.state.players.get(room.sessionId);
-      if (local !== undefined) {
-        for (const [key, c] of local.cooldowns) {
-          cooldowns.push({ key, readyAtMs: c.readyAtMs });
-        }
-      }
-      return cooldowns;
     },
     leave: async () => {
       await room.leave(true);

@@ -107,7 +107,7 @@ try {
   const combat = new CombatController(await loadCombatActions(), {
     sendAbility: (abilityId) => session.sendAbility(abilityId),
     sendDodge: (dir) => session.sendDodge(dir),
-    now: () => Date.now(), // та же шкала, что у авторитетных readyAtMs (T-014)
+    now: () => Date.now(), // часы клиента; серверные readyAtMs в эту шкалу не подмешиваются
   });
   window.__gameCombat = combat;
 
@@ -156,8 +156,6 @@ try {
     movement.update(dt);
     // Рендер показывает предсказание, а не снапшот сервера (отзывчивость, TECH-SPEC 4).
     world.setLocalPosition(movement.position);
-    // Авторитетные кулдауны из state — продление локальной копии (T-017).
-    combat.applyServerCooldowns(session.localCooldowns());
 
     if (document.visibilityState === 'visible') {
       requestAnimationFrame(loop);
