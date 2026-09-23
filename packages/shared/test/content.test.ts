@@ -3,10 +3,13 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import {
+  parseAbilityConfig,
   parseItemConfig,
   parseMobConfig,
+  toAbilityId,
   toItemId,
   toMobId,
+  type AbilityConfig,
   type ItemConfig,
   type MobConfig,
 } from '../src/index.js';
@@ -59,4 +62,83 @@ test('битые конфиги отклоняются целиком', () => {
   );
   assert.equal(parseItemConfig([]), undefined);
   assert.equal(parseMobConfig({ id: 'm', name: 'm', faction: 'magic', hp: 40 }), undefined);
+});
+
+/** Конфиг способности в той же форме, в какой он ляжет в `/content/abilities` (файлы — за T-013). */
+const ABILITY_JSON = `{
+  "id": "rust-jab",
+  "name": "Ржавый джеб",
+  "damage": 9,
+  "damageType": "techno",
+  "cooldownMs": 1200,
+  "range": 2.5,
+  "radius": 0,
+  "appliesStatus": { "status": "vulnerable", "durationMs": 4000, "damageMultiplier": 1.25 }
+}`;
+
+test('AbilityConfig — парсится из JSON, включая статус', () => {
+  const parsed = parseAbilityConfig(JSON.parse(ABILITY_JSON));
+  assert.ok(parsed, 'конфиг способности не распознан');
+  const ability: AbilityConfig = parsed;
+  assert.equal(ability.id, toAbilityId('rust-jab'));
+  assert.equal(ability.damageType, 'techno');
+  assert.equal(ability.cooldownMs, 1200);
+  assert.deepEqual(ability.appliesStatus, {
+    status: 'vulnerable',
+    durationMs: 4000,
+    damageMultiplier: 1.25,
+  });
+});
+
+test('AbilityConfig без appliesStatus — поля статуса нет вовсе', () => {
+  const raw = JSON.parse(ABILITY_JSON) as Record<string, unknown>;
+  delete raw.appliesStatus;
+  const parsed = parseAbilityConfig(raw);
+  assert.ok(parsed);
+  // exactOptionalPropertyTypes: `undefined` в поле недопустим, ключ должен отсутствовать.
+  assert.equal('appliesStatus' in parsed, false);
+});
+
+test('битые AbilityConfig отклоняются целиком', () => {
+  const base = JSON.parse(ABILITY_JSON) as Record<string, unknown>;
+  const broken = (changes: Record<string, unknown>): unknown =>
+    parseAbilityConfig({ ...base, ...changes });
+
+  assert.equal(broken({ damageType: 'fire' }), undefined); // вне DAMAGE_TYPES
+  assert.equal(broken({ cooldownMs: -1 }), undefined); // отрицательный кулдаун
+  assert.equal(broken({ radius: '2' }), undefined); // строка вместо числа
+  assert.equal(broken({ range: Number.NaN }), undefined);
+  assert.equal(broken({ id: '' }), undefined);
+  delete base.radius;
+  assert.equal(parseAbilityConfig(base), undefined); // обязательная дистанция площади
+  // статус: неизвестный id, нулевой множитель, отсутствующая длительность
+  assert.equal(
+    parseAbilityConfig({
+      ...JSON.parse(ABILITY_JSON),
+      appliesStatus: { status: 'stunned', durationMs: 1000, damageMultiplier: 1.25 },
+    }),
+    undefined,
+  );
+  assert.equal(
+    parseAbilityConfig({
+      ...JSON.parse(ABILITY_JSON),
+      appliesStatus: { status: 'vulnerable', durationMs: 1000, damageMultiplier: 0 },
+    }),
+    undefined,
+  );
+  assert.equal(
+    parseAbilityConfig({
+      ...JSON.parse(ABILITY_JSON),
+      appliesStatus: { status: 'vulnerable', damageMultiplier: 1.25 },
+    }),
+    undefined,
+  );
+});
+
+test('MobConfig требует aggroRadius, rust-scout его несёт', () => {
+  const parsed = parseMobConfig(readJson('../../../content/mobs/rust-scout.json'));
+  assert.ok(parsed);
+  const { aggroRadius, ...withoutAggro } = parsed;
+  assert.ok(aggroRadius > 0);
+  assert.equal(parseMobConfig(withoutAggro), undefined);
 });
