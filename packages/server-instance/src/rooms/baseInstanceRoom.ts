@@ -84,6 +84,16 @@ export class BaseInstanceRoom extends Room<{ state: InstanceType<typeof Instance
   /** Уровень логгера комнаты; `define(...)` выставляет его из конфига процесса. */
   static logLevel: LogLevel | undefined = undefined;
 
+  /**
+   * Часы комнаты, мс — зависимость, по умолчанию реальные (тот же приём, что
+   * `MovementDeps.now` на клиенте): тесту нужно передвигать время дискретно,
+   * чтобы проверить истечение статусов (T-016) без реальных таймеров.
+   * Прокидывается через класс, как `logLevel`, потому что комнату создаёт
+   * матчмейкер: `options` в `define` для этого потянули бы тестовый шов
+   * в конфигурацию процесса.
+   */
+  static now: () => number = () => Date.now();
+
   private log!: GameLogger;
   private abilities!: Map<string, AbilityConfig>;
   private mobConfigs!: Map<string, MobConfig>;
@@ -159,7 +169,7 @@ export class BaseInstanceRoom extends Room<{ state: InstanceType<typeof Instance
     }
     // Тик AI (T-015): clock комнаты останавливается вместе с dispose комнаты.
     this.clock.setInterval(() => {
-      this.tickMobs(Date.now());
+      this.tickMobs(BaseInstanceRoom.now());
     }, MOB_TICK_MS);
 
     this.log.info('комната создана');
@@ -189,7 +199,7 @@ export class BaseInstanceRoom extends Room<{ state: InstanceType<typeof Instance
    * кулдаун перезапущен; `false` — ещё не готов, побочных эффектов нет.
    */
   private startCooldown(player: PlayerInstanceState, key: string, cooldownMs: number): boolean {
-    const now = Date.now();
+    const now = BaseInstanceRoom.now();
     const existing = player.cooldowns.get(key);
     if (existing !== undefined && existing.readyAtMs > now) {
       return false;
