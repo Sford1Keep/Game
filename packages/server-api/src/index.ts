@@ -4,6 +4,8 @@ import { pathToFileURL } from 'node:url';
 
 import { Pool } from 'pg';
 
+import { createLogger, type GameLogger } from '@game/shared';
+
 import { AccountService } from './accounts/service.js';
 import { TokenService } from './accounts/token.js';
 import { type AppConfig, loadConfig } from './config.js';
@@ -14,23 +16,32 @@ export interface RunningServer {
   server: Server;
   pool: Pool;
   port: number;
+  log: GameLogger;
 }
 
 export const startServer = async (config: AppConfig): Promise<RunningServer> => {
+  const log = createLogger(
+    { module: 'server-api' },
+    { level: config.logLevel, pretty: config.logPretty },
+  );
+  if (config.ephemeralJwtSecret) {
+    log.warn('JWT_SECRET не задан — использован временный секрет, токены не переживут перезапуск');
+  }
+
   const pool = new Pool({ connectionString: config.databaseUrl, max: 10 });
 
   const client = await pool.connect();
   try {
     const applied = await runMigrations(client);
     if (applied.length > 0) {
-      console.warn(`server-api: применены миграции: ${applied.join(', ')}`);
+      log.info({ migrations: applied }, 'применены миграции');
     }
   } finally {
     client.release();
   }
 
   const accounts = new AccountService(pool, new TokenService(config.jwtSecret));
-  const app = createApp(accounts);
+  const app = createApp(accounts, log);
 
   const server = app.listen(config.port, '127.0.0.1');
   await new Promise<void>((resolve, reject) => {
@@ -41,7 +52,7 @@ export const startServer = async (config: AppConfig): Promise<RunningServer> => 
   if (address === null || typeof address === 'string') {
     throw new Error('ожидался TCP-порт после listen');
   }
-  return { server, pool, port: address.port };
+  return { server, pool, port: address.port, log };
 };
 
 const isMain =
@@ -50,8 +61,8 @@ const isMain =
 
 if (isMain) {
   const config = loadConfig(process.env);
-  const { server, pool, port } = await startServer(config);
-  console.warn(`server-api: слушает http://127.0.0.1:${port}`);
+  const { server, pool, port, log } = await startServer(config);
+  log.info(`слушает http://127.0.0.1:${port}`);
 
   const shutdown = (): void => {
     server.close(() => {

@@ -31,6 +31,7 @@ before(async () => {
     ...(process.env.DATABASE_URL === undefined ? {} : { DATABASE_URL: process.env.DATABASE_URL }),
     JWT_SECRET,
     PORT: '0',
+    LOG_LEVEL: 'silent',
   });
   running = await startServer(config);
   baseUrl = `http://127.0.0.1:${running.port}`;
@@ -153,5 +154,16 @@ describe('T-003: аккаунты (регистрация/вход)', () => {
     });
     assert.equal(res.status, 400);
     assert.equal(((await res.json()) as Record<string, unknown>).error, 'invalid_json');
+  });
+});
+
+describe('T-010: корреляционный id запроса', () => {
+  it('каждый ответ несёт x-request-id, уникальный на запрос', async () => {
+    const first = await fetch(`${baseUrl}/healthz`);
+    const second = await fetch(`${baseUrl}/healthz`);
+    const firstId = first.headers.get('x-request-id');
+    const secondId = second.headers.get('x-request-id');
+    assert.notEqual(firstId, null);
+    assert.notEqual(firstId, secondId);
   });
 });
