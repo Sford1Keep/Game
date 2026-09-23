@@ -5,11 +5,6 @@ import { type MobState, type PlayerState } from './state.js';
 type MobStateInstance = InstanceType<typeof MobState>;
 type PlayerStateInstance = InstanceType<typeof PlayerState>;
 
-/** Дистанция "моб вплотную к цели", с которой нанесимый удар считается попаданием (T-015). */
-export const MOB_ATTACK_RANGE = 1.5;
-/** Удары одного моба не чаще, чем раз в интервал; числа — серверные константы до баланса. */
-export const MOB_ATTACK_INTERVAL_MS = 1_000;
-
 /** Служебное состояние AI спавна, не реплицируется клиентам. */
 export interface MobRuntime {
   readyToAttackAtMs: number;
@@ -19,16 +14,18 @@ const distance = (ax: number, ay: number, bx: number, by: number): number =>
   Math.hypot(bx - ax, by - ay);
 
 /**
- * Один тик AI одного спавна моба (T-015). Время входит параметрами
+ * Один тик AI одного спавна моба (T-015). Все числа боя — из `MobConfig`
+ * (`/content/mobs`, T-020), в коде их нет. Время входит параметрами
  * (`nowMs`/`dtMs`) — детерминированный юнит-тест без реальных таймеров,
  * по той же причине, по которой у `MovementController` инжектируемые часы.
  *
- * Правила: цели нет — выбираем ближайшего игрока в радиусе агро
- * (`aggroRadius` из конфига). Цель липкая, но теряется, когда игрок вышел за
- * радиус (койт от агро) или покинул комнату. Вне `MOB_ATTACK_RANGE` моб
- * сближается со `moveSpeed`, вплотную — бьёт раз в `MOB_ATTACK_INTERVAL_MS`
- * на `damage` из конфига. Смерть игрока (hp <= 0) здесь не обрабатывается —
- * это T-016.
+ * Правила: цели нет — выбираем ближайшего живого (`hp > 0`) игрока в радиусе
+ * агро (`aggroRadius`). Цель липкая с гистерезисом (T-020): удерживается, пока
+ * игрок не вышел за `resetRadius` (>`aggroRadius`), — иначе моб мигал бы целью
+ * на границе агро. Цель также теряется, когда игрок покинул комнату или умер
+ * (`hp <= 0`); на мёртвого игрока моб не перецеливается — респавна игроков нет
+ * (T-020). Вне `attackRange` моб сближается со `moveSpeed`, вплотную — бьёт
+ * раз в `attackIntervalMs` на `damage` из конфига.
  */
 export const stepMob = (
   mob: MobStateInstance,
@@ -41,14 +38,20 @@ export const stepMob = (
   let target: PlayerStateInstance | undefined =
     mob.targetId === '' ? undefined : players.get(mob.targetId);
 
-  if (target !== undefined && distance(mob.x, mob.y, target.x, target.y) > config.aggroRadius) {
-    target = undefined; // кайт: игрок вышел за радиус — цель сброшена
+  if (
+    target !== undefined &&
+    (target.hp <= 0 || distance(mob.x, mob.y, target.x, target.y) > config.resetRadius)
+  ) {
+    target = undefined; // кайт за resetRadius или смерть цели — цель сброшена
   }
   if (target === undefined) {
     let bestId = '';
     let best: PlayerStateInstance | undefined;
     let bestDistance = Infinity;
     for (const [id, player] of players) {
+      if (player.hp <= 0) {
+        continue; // мёртвый игрок не может стать целью (T-020)
+      }
       const d = distance(mob.x, mob.y, player.x, player.y);
       if (d <= config.aggroRadius && d < bestDistance) {
         best = player;
@@ -65,7 +68,7 @@ export const stepMob = (
   }
 
   const d = distance(mob.x, mob.y, target.x, target.y);
-  if (d > MOB_ATTACK_RANGE) {
+  if (d > config.attackRange) {
     // шаг сближения не больше оставшейся дистанции — без перелёта через цель
     const step = Math.min((config.moveSpeed * dtMs) / 1000, d);
     mob.x += ((target.x - mob.x) / d) * step;
@@ -76,5 +79,5 @@ export const stepMob = (
     return;
   }
   target.hp -= config.damage;
-  runtime.readyToAttackAtMs = nowMs + MOB_ATTACK_INTERVAL_MS;
+  runtime.readyToAttackAtMs = nowMs + config.attackIntervalMs;
 };

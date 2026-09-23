@@ -5,8 +5,9 @@ import { Client } from '@colyseus/sdk';
 
 import { loadAbilityCatalog } from '../src/abilityCatalog.js';
 import { loadConfig } from '../src/config.js';
+import { loadMechanicCatalog } from '../src/dodgeCatalog.js';
 import { INSTANCE_ROOM_NAME, startServer, type RunningInstanceServer } from '../src/index.js';
-import { DODGE_COOLDOWN_KEY, DODGE_DISTANCE } from '../src/rooms/baseInstanceRoom.js';
+import { DODGE_COOLDOWN_KEY } from '../src/rooms/baseInstanceRoom.js';
 import { InstanceState } from '../src/state.js';
 import { waitFor } from './helpers.js';
 
@@ -15,9 +16,12 @@ let url: string;
 
 const abilities = loadAbilityCatalog();
 const RUST_JAB_COOLDOWN_MS = abilities.get('rust-jab')?.cooldownMs;
+// Длина рывка — из конфига механики (T-020), не из константы комнаты.
+const DODGE_DISTANCE = loadMechanicCatalog().get('dodge')?.distance as number;
 
 before(async () => {
   assert.ok(RUST_JAB_COOLDOWN_MS, 'rust-jab не в каталоге /content/abilities');
+  assert.ok(DODGE_DISTANCE, 'dodge не в каталоге /content/mechanics');
   running = await startServer(loadConfig({ INSTANCE_PORT: '0', LOG_LEVEL: 'silent' }));
   url = `ws://127.0.0.1:${running.port}`;
 });
@@ -93,7 +97,7 @@ test('неизвестный abilityId и мусор отклоняются, к�
   await room.leave(true);
 });
 
-test('intent.dodge: рывок смещает авторитетно на фиксированную длину, повтор в кулдауне — без смещения', async () => {
+test('intent.dodge: рывок смещает авторитетно на длину из конфига, повтор в кулдауне — без смещения', async () => {
   const room = await join();
   await waitFor(
     () => room.state.players.has(room.sessionId),

@@ -4,12 +4,16 @@ import {
   createLogger,
   toRoomEntityId,
   type AbilityConfig,
+  type ClassConfig,
+  type DodgeConfig,
   type GameLogger,
   type LogLevel,
   type MobConfig,
 } from '@game/shared';
 
 import { loadAbilityCatalog } from '../abilityCatalog.js';
+import { loadClassCatalog } from '../classCatalog.js';
+import { loadMechanicCatalog } from '../dodgeCatalog.js';
 import { loadMobCatalog } from '../mobCatalog.js';
 import { stepMob, type MobRuntime } from '../mobAi.js';
 import {
@@ -26,19 +30,20 @@ import {
   SPAWN_POINT,
 } from '../state.js';
 
-/**
- * Числа уклонения — серверные константы (решение T-013, PROJECT-MAP `/content`):
- * уклонение не является `AbilityConfig`-способностью и в `/content` не лежит.
- */
-export const DODGE_COOLDOWN_MS = 2_000;
-export const DODGE_DISTANCE = 3;
 /** Служебный ключ кулдауна уклонения в `PlayerState.cooldowns` (не abilityId из конфига). */
 export const DODGE_COOLDOWN_KEY = 'dodge';
 
-/** Частота тика AI мобов (T-015); `dt` в шаге сближения считается фиксированной по ней. */
+/**
+ * Частота тика AI мобов (T-015) — инженерная константа дискретизации, не баланс:
+ * числа самого боя (`attackRange`, `attackIntervalMs`, радиусы агро) с T-020
+ * читаются из `/content/mobs`.
+ */
 export const MOB_TICK_MS = 100;
-/** Старт HP игрока: персонажной системы нет (T-004), число — серверная константа комнаты. */
-export const PLAYER_MAX_HP = 50;
+/**
+ * Класс-заглушка для стартовых HP игрока (T-020): id из `content/classes`,
+ * персонажной системы ещё нет (T-004) — ссылка на конфиг по id, не числа.
+ */
+export const PLAYER_CLASS_ID = 'melee-initiate';
 /**
  * Спавны комнаты на старте (T-015): фиксированный набор, без карт/зон —
  * их некому расставлять до конфига территории.
@@ -48,6 +53,24 @@ export const MOB_SPAWNS: readonly { mobId: string; x: number; y: number }[] = [
 ];
 
 type PlayerInstanceState = InstanceType<typeof PlayerState>;
+
+/** Конфиг уклонения обязан быть в `/content/mechanics` — без него комната не собирается (T-020). */
+const requireDodge = (catalog: Map<string, DodgeConfig>): DodgeConfig => {
+  const dodge = catalog.get(DODGE_COOLDOWN_KEY);
+  if (dodge === undefined) {
+    throw new Error(`нет конфига механики: ${DODGE_COOLDOWN_KEY}`);
+  }
+  return dodge;
+};
+
+/** Класс-заглушка игрока обязан быть в `/content/classes` (T-020, до T-004). */
+const requireClass = (catalog: Map<string, ClassConfig>, id: string): ClassConfig => {
+  const config = catalog.get(id);
+  if (config === undefined) {
+    throw new Error(`нет конфига класса: ${id}`);
+  }
+  return config;
+};
 
 /**
  * Комната инстанса: жизненный цикл Colyseus, репликация позиции игрока в state
@@ -64,6 +87,8 @@ export class BaseInstanceRoom extends Room<{ state: InstanceType<typeof Instance
   private log!: GameLogger;
   private abilities!: Map<string, AbilityConfig>;
   private mobConfigs!: Map<string, MobConfig>;
+  private dodge!: DodgeConfig;
+  private playerClass!: ClassConfig;
   /** Служебное состояние AI по entityId спавна; состав совпадает с `state.mobs`. */
   private mobRuntimes = new Map<string, MobRuntime>();
 
@@ -71,6 +96,8 @@ export class BaseInstanceRoom extends Room<{ state: InstanceType<typeof Instance
     this.state = new InstanceState();
     this.abilities = loadAbilityCatalog();
     this.mobConfigs = loadMobCatalog();
+    this.dodge = requireDodge(loadMechanicCatalog());
+    this.playerClass = requireClass(loadClassCatalog(), PLAYER_CLASS_ID);
     this.log = createLogger(
       { module: 'server-instance', instanceId: this.roomId },
       BaseInstanceRoom.logLevel === undefined ? {} : { level: BaseInstanceRoom.logLevel },
@@ -117,7 +144,7 @@ export class BaseInstanceRoom extends Room<{ state: InstanceType<typeof Instance
         this.log.warn({ sessionId: client.sessionId }, 'отклонён intent.dodge');
         return;
       }
-      if (!this.startCooldown(player, DODGE_COOLDOWN_KEY, DODGE_COOLDOWN_MS)) {
+      if (!this.startCooldown(player, DODGE_COOLDOWN_KEY, this.dodge.cooldownMs)) {
         this.log.info(
           { sessionId: client.sessionId },
           'уклонение не готово, intent.dodge отклонён',
@@ -142,7 +169,7 @@ export class BaseInstanceRoom extends Room<{ state: InstanceType<typeof Instance
     const player = new PlayerState();
     player.x = SPAWN_POINT.x;
     player.y = SPAWN_POINT.y;
-    player.hp = PLAYER_MAX_HP;
+    player.hp = this.playerClass.maxHp;
     this.state.players.set(client.sessionId, player);
     this.log.info({ sessionId: client.sessionId, players: this.state.players.size }, 'join');
   }
@@ -174,11 +201,11 @@ export class BaseInstanceRoom extends Room<{ state: InstanceType<typeof Instance
     return true;
   }
 
-  /** Рывок на фиксированную длину по нормализованному направлению (TECH-SPEC 4). */
+  /** Рывок на длину из конфига механики по нормализованному направлению (TECH-SPEC 4, T-020). */
   private applyDodge(player: PlayerInstanceState, intent: DodgeIntent): void {
     const length = Math.hypot(intent.dirX, intent.dirY);
-    player.x += (intent.dirX / length) * DODGE_DISTANCE;
-    player.y += (intent.dirY / length) * DODGE_DISTANCE;
+    player.x += (intent.dirX / length) * this.dodge.distance;
+    player.y += (intent.dirY / length) * this.dodge.distance;
   }
 
   /** Заводит спавн моба по конфигу из `/content/mobs` (T-015); unknown id падает на старте комнаты. */
