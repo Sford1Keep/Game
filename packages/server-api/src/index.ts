@@ -8,6 +8,8 @@ import { createLogger, type GameLogger } from '@game/shared';
 
 import { AccountService } from './accounts/service.js';
 import { TokenService } from './accounts/token.js';
+import { loadClassCatalog } from './characters/classCatalog.js';
+import { CharacterService } from './characters/service.js';
 import { type AppConfig, loadConfig } from './config.js';
 import { runMigrations } from './db/migrate.js';
 import { createApp } from './http/app.js';
@@ -41,7 +43,9 @@ export const startServer = async (config: AppConfig): Promise<RunningServer> => 
   }
 
   const accounts = new AccountService(pool, new TokenService(config.jwtSecret));
-  const app = createApp(accounts, log);
+  // Каталог классов грузится на старт процесса: битый/пустой /content/classes — падение, а не тихий ноль (T-004).
+  const characters = new CharacterService(pool, loadClassCatalog());
+  const app = createApp(accounts, characters, log);
 
   const server = app.listen(config.port, '127.0.0.1');
   await new Promise<void>((resolve, reject) => {
