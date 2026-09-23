@@ -14,7 +14,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "tsx --test test/movement.test.ts"
+    "test": "tsx --test test/movement.test.ts test/combat.test.ts"
   },
   "dependencies": {
     "@colyseus/sdk": "^0.18.3",

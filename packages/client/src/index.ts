@@ -1,7 +1,7 @@
 /**
- * Точка входа `@game/client`. Публичный интерфейс — game-core (модель мира и
- * предсказание движения); сетевой адаптер и рендер подключаются в `src/main.ts`
- * (dev-сборка Vite).
+ * Точка входа `@game/client`. Публичный интерфейс — game-core (модель мира,
+ * предсказание движения, боёвка ввода); сетевой адаптер и рендер подключаются
+ * в `src/main.ts` (dev-сборка Vite).
  */
 export { WorldStore, type WorldPlayer } from './game-core/world.js';
 export {
@@ -11,3 +11,10 @@ export {
   SNAP_TOLERANCE,
   type MovementDeps,
 } from './game-core/movement.js';
+export {
+  CombatController,
+  DODGE_KEY,
+  type CombatAction,
+  type CombatDeps,
+  type ServerCooldown,
+} from './game-core/combat.js';
