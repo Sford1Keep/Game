@@ -25,7 +25,7 @@
 | `client` | Phaser-клиент + отделённый от рендера слой игровой логики (game-core) | 1, 3, 9.2 | Подключение, рендер и локальное предсказание движения (T-007, T-008), см. структуру ниже |
 
 
-## `packages/shared` — состав (T-002, T-009)
+## `packages/shared` — состав (T-002, T-009, T-010)
 
 Наружу всё отдаётся только через `src/index.ts`; пакеты импортируют `@game/shared`, а не внутренние файлы.
 
@@ -36,22 +36,24 @@
 | `src/status.ts` | `AccountStatus`, `CharacterStatus` — значения предложены исполнителем, утверждены лидом при ревью T-002 |
 | `src/content.ts` | Схема контент-конфигов `/content` (T-009): `ItemConfig`/`MobConfig` (id — `ItemId`/`MobId`), словари `FACTIONS`/`ITEM_KINDS`/`STAT_IDS`, парсеры `parseItemConfig`/`parseMobConfig` — граница `unknown → конфиг` (битый файл отклоняется целиком, возвращая `undefined`) |
 | `test/content.test.ts` | Тестовый стаб приёмки T-009 (`tsx --test`): читаем JSON из `/content`, получаем типизированные конфиги через `@game/shared`; плюс контроль отклонения битых конфигов |
+| `src/logging.ts` | Диагностическое логирование (TECH-SPEC 10.1, T-010): `createLogger(context, options)` — фабрика над `pino`, `LogLevel`/`LOG_LEVELS`, `resolveLogLevel(env)` (`LOG_LEVEL`, по умолчанию `info` в проде и `debug` в dev), `parseLogLevel` с отклонением неизвестного уровня. Только Node.js: браузерный `client` остаётся на `console.warn` |
+| `test/logging.test.ts` | Стаб приёмки T-010: уровень из env, контекст фабрики в каждой записи, брошенная ошибка → structured-запись со стеком и `requestId` (чтение из перехваченного потока, stdout не трогаем) |
 
 
 Файлы `packages/server-api/src/shared-types-stub.ts` и `packages/client/src/shared-types-stub.ts` — проверочные импорт-стабы из критерия приёмки T-002; оба удалены за ненадобностью: серверный — в T-003, клиентский — в T-007, типы теперь используются в реальном коде.
 
-## `packages/server-api` — состав (T-003)
+## `packages/server-api` — состав (T-003, T-010)
 
-Запускается через `tsx` (эмита нет, `noEmit` сохранён; `tsx` транслирует и TS-исходники `@game/shared` с enum'ами). Скрипты пакета: `dev` / `start` / `test`. Конфигурация — окружение (`DATABASE_URL`, `JWT_SECRET`, `PORT`), пример в `packages/server-api/.env.example`. Локальный dev-кластер PostgreSQL поднимается в `.local/pgdata` (порт 5433, каталог в `.gitignore`), команды — в том же `.env.example`.
+Запускается через `tsx` (эмита нет, `noEmit` сохранён; `tsx` транслирует и TS-исходники `@game/shared` с enum'ами). Скрипты пакета: `dev` / `start` / `test`. Конфигурация — окружение (`DATABASE_URL`, `JWT_SECRET`, `PORT`, `LOG_LEVEL`, `NODE_ENV`), пример в `packages/server-api/.env.example`. Локальный dev-кластер PostgreSQL поднимается в `.local/pgdata` (порт 5433, каталог в `.gitignore`), команды — в том же `.env.example`.
 
 | Модуль | Содержимое |
 |---|---|
-| `src/config.ts` | `loadConfig(env)` — разбор конфигурации из переменных окружения |
+| `src/config.ts` | `loadConfig(env)` — разбор конфигурации из переменных окружения; `logLevel`/`logPretty` (T-010) и флаг `ephemeralJwtSecret` — предупреждение о временном секрете выдаёт логгер, а не `console.warn` |
 | `src/db/migrate.ts` | Простейший runner SQL-миграций (таблица `schema_migrations`, файл = транзакция) |
 | `src/migrations/0001_create_accounts.sql` | Таблица `accounts` (`id` — текст под `AccountId`, `login` unique, `password_hash`, `status` с CHECK по `AccountStatus`) |
 | `src/accounts/` | Домен аккаунтов: `password.ts` (scrypt-хеширование из `node:crypto`, без нативных зависимостей), `token.ts` (JWT HS256 через `jose`, `sub` = `AccountId`), `service.ts` (регистрация/аутентификация/`resolveSession`, типизированные доменные ошибки) |
-| `src/http/app.ts` | Express-приложение: `POST /accounts/register`, `POST /accounts/login`, `GET /healthz`; маппинг доменных ошибок в 400/401/403/409 |
-| `src/index.ts` | Точка входа: миграции → запуск HTTP-сервера; экспорт `startServer` для тестов |
+| `src/http/app.ts` | Express-приложение: `POST /accounts/register`, `POST /accounts/login`, `GET /healthz`; маппинг доменных ошибок в 400/401/403/409. Middleware корреляции (T-010): на запрос генерируется `requestId`, кладётся в `req.log` (child-логгер) и в заголовок ответа `x-request-id`, финал запроса логируется с `statusCode`/`elapsedMs`; `accountId` добавится в контекст, когда появится auth-middleware |
+| `src/index.ts` | Точка входа: логгер процесса → миграции → запуск HTTP-сервера; `startServer` возвращает `{ server, pool, port, log }` для тестов |
 | `test/accounts.test.ts` | node:test: сквозная проверка критерия приёмки T-003 по HTTP против реального PostgreSQL |
 
 ## `packages/client` — состав (T-007, T-008)
@@ -70,17 +72,17 @@
 
 Проверка приёмки T-007 (вручную, браузеров в тестах нет): страница `http://localhost:5173` показывает персонажа; node-клиент, зашедший вторым, появляется в roster браузера и исчезает при leave. Проверка T-008: в браузере предсказание сдвигает персонажа в том же кадре ввода; после остановки авторитетная позиция стороннего node-обсервера совпадает с предсказанной (дрейфа нет).
 
-## `packages/server-instance` — состав (T-005, T-006)
+## `packages/server-instance` — состав (T-005, T-006, T-010)
 
 Точка входа `src/index.ts` реэкспортирует наружу комнату, state, сообщения и `startServer`. Комната регистрируется в матчмейкинге под именем `INSTANCE_ROOM_NAME` (`'instance'`) — клиент подключается по нему (Colyseus SDK, `joinOrCreate`).
 
 | Модуль | Содержимое |
 |---|---|
 | `src/state.ts` | Schema-классы состояния комнаты на новом API `schema()`/`t.*` (schema 5.x, без decorators): `PlayerState` (`x`, `y`), `InstanceState` (`players: MapSchema<PlayerState>`, ключ — `sessionId`), `SPAWN_POINT` — начальная позиция (`Vector2` из shared) |
-| `src/rooms/baseInstanceRoom.ts` | `BaseInstanceRoom` — комната инстанса: жизненный цикл `onCreate`/`onJoin`/`onLeave`/`onDispose` (join добавляет игрока на спавне, leave удаляет; reconnect/auth вне скоупа Фазы 0) + обработчик `intent.move` (T-006): сервер авторитетно применяет валидное смещение к позиции, state sync расходится встроенным механизмом (TECH-SPEC 4) |
+| `src/rooms/baseInstanceRoom.ts` | `BaseInstanceRoom` — комната инстанса: жизненный цикл `onCreate`/`onJoin`/`onLeave`/`onDispose` (join добавляет игрока на спавне, leave удаляет; reconnect/auth вне скоупа Фазы 0) + обработчик `intent.move` (T-006): сервер авторитетно применяет валидное смещение к позиции, state sync расходится встроенным механизмом (TECH-SPEC 4). Все события жизненного цикла и отказ в `intent.move` идут через логгер с контекстом `instanceId` + `sessionId` (T-010); уровень Colyseus передаёт через статическое поле, т.к. комнату создаёт матчмейкер |
 | `src/messages.ts` | Прикладные client→server намерения: `MoveIntent` (`dx`/`dy`) и `parseMoveIntent` — чистая валидация payload (мусор/NaN/Infinity отклоняются без изменения позиции) |
-| `src/config.ts` | `loadConfig`: `INSTANCE_PORT` (по умолчанию 2600), `INSTANCE_HOSTNAME` (127.0.0.1) |
-| `src/index.ts` | `startServer(config)` — Server + WebSocketTransport, `define` комнаты, возврат `{ server, port }`; при прямом запуске (`npm start -w @game/server-instance`, `dev` — с watch) слушает конфиг из env |
+| `src/config.ts` | `loadConfig`: `INSTANCE_PORT` (по умолчанию 2600), `INSTANCE_HOSTNAME` (127.0.0.1), `logLevel`/`logPretty` (T-010) |
+| `src/index.ts` | `startServer(config)` — Server + WebSocketTransport, `define` комнаты, возврат `{ server, port, log }`; при прямом запуске (`npm start -w @game/server-instance`, `dev` — с watch) слушает конфиг из env |
 | `test/instanceRoom.test.ts`, `test/intentMove.test.ts`, `test/helpers.ts` | Интеграционные тесты (node:test + `@colyseus/sdk`, сервер на порту 0): join/leave видимость в state; `intent.move` доходит до остальных, невалидный payload отклоняется; `waitFor` — опрос асинхронного state sync |
 
 ## `/content` — формат (зафиксирован в T-009)
