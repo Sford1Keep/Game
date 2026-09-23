@@ -20,7 +20,7 @@
 | Пакет | Отвечает за | Связанные разделы TECH-SPEC | Статус |
 |---|---|---|---|
 | `shared` | Общие типы, схемы данных, константы, формулы — используется и клиентом, и сервером | 1, 3, 5 | Базовые типы (T-002), схема контент-конфигов (T-009), см. структуру ниже |
-| `server-api` | HTTP/REST: аккаунты, инвентарь вне боя, гильдии, аукцион, лидерборды, квестовый прогресс | 1, 2, 5 | Аккаунты: регистрация/вход (T-003), см. структуру ниже; остальное ждёт своих задач |
+| `server-api` | HTTP/REST: аккаунты, инвентарь вне боя, гильдии, аукцион, лидерборды, квестовый прогресс | 1, 2, 5 | Аккаунты: регистрация/вход (T-003), персонажи: создание/чтение с auth (T-004), см. структуру ниже; остальное ждёт своих задач |
 | `server-instance` | Colyseus-приложение: боевая логика, зоны, испытания, гильд-рейды (комнаты) | 1, 2, 4 | Комната, движение, интенты способностей/уклонения и моб с агро (T-005, T-006, T-014, T-015), баланс из `/content` (T-020), см. структуру ниже |
 | `client` | Phaser-клиент + отделённый от рендера слой игровой логики (game-core) | 1, 3, 9.2 | Подключение, рендер и локальное предсказание движения (T-007, T-008), см. структуру ниже |
 
@@ -45,7 +45,7 @@
 
 Файлы `packages/server-api/src/shared-types-stub.ts` и `packages/client/src/shared-types-stub.ts` — проверочные импорт-стабы из критерия приёмки T-002; оба удалены за ненадобностью: серверный — в T-003, клиентский — в T-007, типы теперь используются в реальном коде.
 
-## `packages/server-api` — состав (T-003, T-010, T-011)
+## `packages/server-api` — состав (T-003, T-004, T-010, T-011)
 
 Запускается через `tsx` (эмита нет, `noEmit` сохранён; `tsx` транслирует и TS-исходники `@game/shared` с enum'ами). Скрипты пакета: `dev` / `start` / `test`. Конфигурация — окружение (`DATABASE_URL`, `JWT_SECRET`, `PORT`, `LOG_LEVEL`, `NODE_ENV`), пример в `packages/server-api/.env.example`. Локальный dev-кластер PostgreSQL поднимается в `.local/pgdata` (порт 5433, каталог в `.gitignore`), команды — в том же `.env.example`.
 
@@ -56,10 +56,14 @@
 | `src/migrations/0002_create_game_events.sql` | Таблица `game_events` (T-011, TECH-SPEC 10.2): `type` с CHECK по `GAME_EVENT_TYPES`, `actor_id`, `instance_id` (nullable), `payload` jsonb, `occurred_at` + служебный `recorded_at`; индексы по `(actor_id, occurred_at)` и `(instance_id, occurred_at)`; append-only держится триггером, который отклоняет UPDATE и DELETE на уровне БД |
 | `src/events/store.ts` | `GameEventStore.record(event)` — единственный путь записи (TECH-SPEC 10.2): только `insert`, без upsert, поэтому повторное событие = вторая строка. HTTP-эндпоинт приёма событий от `server-instance` появляется в T-016, где у него первый потребитель |
 | `src/migrations/0001_create_accounts.sql` | Таблица `accounts` (`id` — текст под `AccountId`, `login` unique, `password_hash`, `status` с CHECK по `AccountStatus`) |
+| `src/migrations/0003_create_characters.sql` | Таблица `characters` (T-004): `id` — текст под `CharacterId`, `account_id` — FK на `accounts`, `name` уникально в границах аккаунта, `class_id` — ссылка на конфиг `/content/classes` (валидируется сервисом, не CHECK: контент живёт своей жизнью, TECH-SPEC 6), `status` с CHECK по `CharacterStatus` |
+| `src/characters/service.ts` | `CharacterService`: `create` (валидация имени `2-24` буква/цифра/`_`/`-`, класс — только из каталога, повтор имени на аккаунте → `CharacterNameTakenError` → 409), `get` (только свой, чужой — `undefined`), `listForAccount`; типизированные доменные ошибки, как в `accounts` |
+| `src/characters/classCatalog.ts` | `loadClassCatalog(dir?)` — чтение `content/classes/*.json` через `parseClassConfig` (shared) на старт процесса API; битый конфиг — падение, а не тихий пропуск (тот же порядок, что у каталогов `server-instance`) |
 | `src/accounts/` | Домен аккаунтов: `password.ts` (scrypt-хеширование из `node:crypto`, без нативных зависимостей), `token.ts` (JWT HS256 через `jose`, `sub` = `AccountId`), `service.ts` (регистрация/аутентификация/`resolveSession`, типизированные доменные ошибки) |
-| `src/http/app.ts` | Express-приложение: `POST /accounts/register`, `POST /accounts/login`, `GET /healthz`; маппинг доменных ошибок в 400/401/403/409. Middleware корреляции (T-010): на запрос генерируется `requestId`, кладётся в `req.log` (child-логгер) и в заголовок ответа `x-request-id`, финал запроса логируется с `statusCode`/`elapsedMs`; `accountId` добавится в контекст, когда появится auth-middleware |
+| `src/http/app.ts` | Express-приложение: `POST /accounts/register`, `POST /accounts/login`, `GET /healthz`; маппинг доменных ошибок в 400/401/403/409. Middleware корреляции (T-010): на запрос генерируется `requestId`, кладётся в `req.log` (child-логгер) и в заголовок ответа `x-request-id`, финал запроса логируется с `statusCode`/`elapsedMs`. С T-004 — первый auth-слой: на `/characters*` Bearer-токен проверяется `resolveSession` (статус аккаунта перечитывается из БД — suspended отрезает и живые сессии, 403), `req.accountId` попадает в контекст логгера; эндпоинты: `POST /characters` (создание), `GET /characters` (список своих), `GET /characters/:id` (свой; чужой неотличим от несуществующего — 404 без раскрытия) |
 | `src/index.ts` | Точка входа: логгер процесса → миграции → запуск HTTP-сервера; `startServer` возвращает `{ server, pool, port, log }` для тестов |
-| `test/accounts.test.ts` | node:test: сквозная проверка критерия приёмки T-003 по HTTP против реального PostgreSQL |
+| `test/accounts.test.ts` | node:test: сквозная проверка критерия приёмки T-003 по HTTP против реального PostgreSQL (очистка `truncate accounts cascade` — с T-004 на таблицы висит FK персонажей) |
+| `test/characters.test.ts` | Стаб приёмки T-004: создание персонажа и повторное получение своих данных; чужой персонаж недоступен и неотличим от несуществующего (404); без токена/битый токен — 401, suspended — 403; неизвестный класс/плохое имя — 400, повтор имени — 409 |
 
 ## `packages/client` — состав (T-007, T-008)
 

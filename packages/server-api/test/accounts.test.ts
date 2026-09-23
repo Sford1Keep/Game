@@ -36,7 +36,8 @@ before(async () => {
   running = await startServer(config);
   baseUrl = `http://127.0.0.1:${running.port}`;
   tokens = new TokenService(config.jwtSecret);
-  await running.pool.query('truncate table accounts');
+  // cascade: с T-004 на accounts висяет FK из characters — остаточные персонажи не должны блокировать очистку
+  await running.pool.query('truncate table accounts cascade');
 });
 
 after(async () => {
