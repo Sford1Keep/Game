@@ -16,5 +16,4 @@ export {
   DODGE_KEY,
   type CombatAction,
   type CombatDeps,
-  type ServerCooldown,
 } from './game-core/combat.js';

@@ -118,30 +118,19 @@ test('нулевое направление: уклонение отклоняе
   assert.equal(c.pressDodge({ x: 1, y: 0 }), true);
 });
 
-test('авторитетный readyAtMs продлевает локальную копию', () => {
-  const fake = makeFake();
-  const c = new CombatController([{ key: 'rust-jab', cooldownMs: 100 }], fake.deps);
-
-  assert.equal(c.pressAbility('rust-jab'), true);
-  // Сервер выставил готовность позже локальной оптимистичной метки.
-  c.applyServerCooldowns([{ key: 'rust-jab', readyAtMs: fake.deps.now() + 5_000 }]);
-
-  fake.tick(100); // локальный кулдаун уже истёк бы…
-  assert.equal(c.isReady('rust-jab'), false, 'но авторитет длиннее');
-  assert.equal(c.pressAbility('rust-jab'), false);
-});
-
-test('авторитетный readyAtMs раньше локального — локальный не разгоняется', () => {
-  const fake = makeFake();
+test('кулдаун локальный: метка готовности = нажатие + конфиг, больше ниоткуда', () => {
+  const fake = makeFake(1_000);
   const c = new CombatController(ACTIONS, fake.deps);
 
   assert.equal(c.pressAbility('marker-shot'), true);
-  // Например, state пришёл из до-нажатного состояния или гонки снапшотов.
-  c.applyServerCooldowns([{ key: 'marker-shot', readyAtMs: fake.deps.now() - 1 }]);
+  assert.equal(c.readyAtMs('marker-shot'), 1_000 + 5_000);
 
-  assert.equal(c.isReady('marker-shot'), false);
+  // Отставание или опережение часов клиента на кулдаун влиять не должно:
+  // серверный авторитет (T-014) отклоняет лишний интент сам.
   fake.tick(4_999);
+  assert.equal(c.isReady('marker-shot'), false);
   assert.equal(c.pressAbility('marker-shot'), false);
   fake.tick(1);
   assert.equal(c.pressAbility('marker-shot'), true);
+  assert.equal(c.readyAtMs('marker-shot'), 11_000); // второй запуск: 6000 + 5000
 });

@@ -5,15 +5,18 @@ import type { Vector2 } from '@game/shared';
  * Чистый TS — ни Phaser, ни Colyseus: часы и отправка намерений инжектируются
  * (тот же порядок, что у `MovementController` из T-008).
  *
- * Кулдаун: сервер держит авторитетный `readyAtMs` в state (T-014), клиент —
- * его копию для мгновенного фидбека: нажатие либо блокируется локально (без
- * round-trip), либо сразу отправляет интент и optimistic-но запускает местный
- * таймер. Авторитетное значение из state применяется как продление: сервер
- * мог отклонить интент (неизвестный id, гонка состояний), но разогнать
- * локальный кулдаун раньше конфига он не может — поэтому берётся max.
+ * Кулдаун считается только локально и только от момента нажатия: `readyAtMs`
+ * сервера (T-014) — абсолютная метка другой машины, а общей временной базы у
+ * часов клиента и сервера нет. Сравнение с ней блокировало бы кнопку дольше
+ * серверного кулдауна (или отпускало бы раньше), если часы клиента отстают.
+ * Авторитет при этом не меняется: лишний интент сервер отклоняет сам.
+ * Возврат синхронизации — отдельное решение, когда под это появится HUD.
  */
 
-/** Шкала часов — `Date.now()`, та же, что у серверного `readyAtMs` (T-014). */
+/**
+ * Зависимости контроллера: канал отправки интентов и локальные часы. Шкала
+ * часов — часы клиента, абсолютные серверные `readyAtMs` в неё не подмешиваются.
+ */
 export interface CombatDeps {
   /** Отправка `intent.ability` (адаптер вызывает room.send). */
   sendAbility(abilityId: string): void;
@@ -30,11 +33,6 @@ export interface CombatAction {
 
 /** Ключ кулдауна уклонения в state комнаты — зеркало `DODGE_COOLDOWN_KEY` сервера (T-014). */
 export const DODGE_KEY = 'dodge';
-
-export interface ServerCooldown {
-  readonly key: string;
-  readonly readyAtMs: number;
-}
 
 export class CombatController {
   private readonly cooldownMs = new Map<string, number>();
@@ -87,15 +85,6 @@ export class CombatController {
     }
     this.deps.sendDodge(dir);
     return true;
-  }
-
-  /** Копия авторитетных кулдаунов локального игрока из state комнаты. */
-  applyServerCooldowns(entries: readonly ServerCooldown[]): void {
-    for (const { key, readyAtMs } of entries) {
-      if (readyAtMs > (this.readyAt.get(key) ?? 0)) {
-        this.readyAt.set(key, readyAtMs);
-      }
-    }
   }
 
   private tryStart(key: string): boolean {
