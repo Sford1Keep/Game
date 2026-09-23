@@ -1,0 +1,9 @@
+{
+  "id": "rust-jab",
+  "name": "Ржавый джеб",
+  "damage": 9,
+  "damageType": "neutral",
+  "cooldownMs": 900,
+  "range": 2.5,
+  "radius": 0
+}
