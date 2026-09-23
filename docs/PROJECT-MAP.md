@@ -21,7 +21,7 @@
 |---|---|---|---|
 | `shared` | Общие типы, схемы данных, константы, формулы — используется и клиентом, и сервером | 1, 3, 5 | Базовые типы (T-002), схема контент-конфигов (T-009), см. структуру ниже |
 | `server-api` | HTTP/REST: аккаунты, инвентарь вне боя, гильдии, аукцион, лидерборды, квестовый прогресс | 1, 2, 5 | Аккаунты: регистрация/вход (T-003), см. структуру ниже; остальное ждёт своих задач |
-| `server-instance` | Colyseus-приложение: боевая логика, зоны, испытания, гильд-рейды (комнаты) | 1, 2, 4 | Базовая комната + движение (T-005, T-006), см. структуру ниже |
+| `server-instance` | Colyseus-приложение: боевая логика, зоны, испытания, гильд-рейды (комнаты) | 1, 2, 4 | Базовая комната, движение и намерения способностей/уклонения (T-005, T-006, T-014), см. структуру ниже |
 | `client` | Phaser-клиент + отделённый от рендера слой игровой логики (game-core) | 1, 3, 9.2 | Подключение, рендер и локальное предсказание движения (T-007, T-008), см. структуру ниже |
 
 
@@ -77,15 +77,16 @@
 
 Проверка приёмки T-007 (вручную, браузеров в тестах нет): страница `http://localhost:5173` показывает персонажа; node-клиент, зашедший вторым, появляется в roster браузера и исчезает при leave. Проверка T-008: в браузере предсказание сдвигает персонажа в том же кадре ввода; после остановки авторитетная позиция стороннего node-обсервера совпадает с предсказанной (дрейфа нет).
 
-## `packages/server-instance` — состав (T-005, T-006, T-010)
+## `packages/server-instance` — состав (T-005, T-006, T-010, T-014)
 
 Точка входа `src/index.ts` реэкспортирует наружу комнату, state, сообщения и `startServer`. Комната регистрируется в матчмейкинге под именем `INSTANCE_ROOM_NAME` (`'instance'`) — клиент подключается по нему (Colyseus SDK, `joinOrCreate`).
 
 | Модуль | Содержимое |
 |---|---|
-| `src/state.ts` | Schema-классы состояния комнаты на новом API `schema()`/`t.*` (schema 5.x, без decorators): `PlayerState` (`x`, `y`), `InstanceState` (`players: MapSchema<PlayerState>`, ключ — `sessionId`), `SPAWN_POINT` — начальная позиция (`Vector2` из shared) |
-| `src/rooms/baseInstanceRoom.ts` | `BaseInstanceRoom` — комната инстанса: жизненный цикл `onCreate`/`onJoin`/`onLeave`/`onDispose` (join добавляет игрока на спавне, leave удаляет; reconnect/auth вне скоупа Фазы 0) + обработчик `intent.move` (T-006): сервер авторитетно применяет валидное смещение к позиции, state sync расходится встроенным механизмом (TECH-SPEC 4). Все события жизненного цикла и отказ в `intent.move` идут через логгер с контекстом `instanceId` + `sessionId` (T-010); уровень Colyseus передаёт через статическое поле, т.к. комнату создаёт матчмейкер |
-| `src/messages.ts` | Прикладные client→server намерения: `MoveIntent` (`dx`/`dy`) и `parseMoveIntent` — чистая валидация payload (мусор/NaN/Infinity отклоняются без изменения позиции) |
+| `src/state.ts` | Schema-классы состояния комнаты на новом API `schema()`/`t.*` (schema 5.x, без decorators): `PlayerState` (`x`, `y`, `cooldowns` — `MapSchema<AbilityCooldownState>` с ключом по abilityId), `AbilityCooldownState` (`abilityId`, `readyAtMs` — реплицированный аналог `AbilityCooldown` из shared, T-014), `InstanceState` (`players: MapSchema<PlayerState>`, ключ — `sessionId`), `SPAWN_POINT` — начальная позиция (`Vector2` из shared) |
+| `src/rooms/baseInstanceRoom.ts` | `BaseInstanceRoom` — комната инстанса: жизненный цикл `onCreate`/`onJoin`/`onLeave`/`onDispose` (join добавляет игрока на спавне, leave удаляет; reconnect/auth вне скоупа Фазы 0) + обработчики намерений: `intent.move` (T-006) авторитетно применяет смещение; `intent.ability` (T-014) сверяет `abilityId` с каталогом `/content` и проверяет кулдаун — до истечения отклонение без побочных эффектов, при принятии `readyAtMs = now + cooldownMs` попадает в state (сам расчёт урона — T-016); `intent.dodge` (T-014) — рывок на `DODGE_DISTANCE` по нормализованному направлению с кулдауном `DODGE_COOLDOWN_MS` (серверные константы, см. `/content` про уклонение). Единый механизм `startCooldown` держит и способности, и уклонение (ключ `DODGE_COOLDOWN_KEY`). Все события и отказы идут через логгер с контекстом `instanceId` + `sessionId` (T-010); уровень Colyseus передаёт через статическое поле, т.к. комнату создаёт матчмейкер |
+| `src/abilityCatalog.ts` | `loadAbilityCatalog(dir?)` — чтение `content/abilities/*.json` через `parseAbilityConfig` (shared), Map `abilityId → AbilityConfig`; первый читатель `/content` на сервере (T-014). Битый конфиг — исключение при создании комнаты, не тихий пропуск; путь к каталогу разрешается от модуля, тесты могут подложить свою директорию |
+| `src/messages.ts` | Прикладные client→server намерения: `MoveIntent` (`dx`/`dy`), `AbilityIntent` (`abilityId`) и `DodgeIntent` (`dirX`/`dirY` — только направление, длину ведёт сервер) с чистыми парсерами `parseMoveIntent`/`parseAbilityIntent`/`parseDodgeIntent` — валидация payload (мусор/NaN/Infinity/нулевой вектор отклоняются без изменения состояния) |
 | `src/config.ts` | `loadConfig`: `INSTANCE_PORT` (по умолчанию 2600), `INSTANCE_HOSTNAME` (127.0.0.1), `logLevel`/`logPretty` (T-010) |
 | `src/index.ts` | `startServer(config)` — Server + WebSocketTransport, `define` комнаты, возврат `{ server, port, log }`; при прямом запуске (`npm start -w @game/server-instance`, `dev` — с watch) слушает конфиг из env |
 | `test/instanceRoom.test.ts`, `test/intentMove.test.ts`, `test/helpers.ts` | Интеграционные тесты (node:test + `@colyseus/sdk`, сервер на порту 0): join/leave видимость в state; `intent.move` доходит до остальных, невалидный payload отклоняется; `waitFor` — опрос асинхронного state sync |
@@ -104,7 +105,7 @@
 | Примеры | `items/scrap-machete.json` (оружие с фракционным аффиксом), `mobs/rust-scout.json` (моб фракции техно), `abilities/rust-jab.json` (базовая ближняя атака), `abilities/marker-shot.json` (дальняя атака с меткой `vulnerable`) |
 | Проверка | `npm test -w @game/shared` — тестовый стаб читает примеры и валидирует их через shared |
 
-Читатели конфигов (загрузка на старте сервера/клиента) подключаются в задачах, которым они нужны, — сам формат от этого не меняется.
+Читатели конфигов (загрузка на старте сервера/клиента) подключаются в задачах, которым они нужны, — сам формат от этого не меняется. Первый читатель — каталог способностей `server-instance` (T-014, см. ниже).
 
 `mobs/rust-scout.json` несёт `aggroRadius: 6` — поле заведено в T-012, в T-013 числа моба (HP/урон/агро) оставлены как базовый баланс Фазы 1; дальнейшая балансировка — по факту тюнинга боёвки (T-016).
 

@@ -24,3 +24,48 @@ export const parseMoveIntent = (raw: unknown): MoveIntent | undefined => {
   }
   return { dx, dy };
 };
+
+/** `intent.ability`: активация способности; `abilityId` сверяется с каталогом `/content` в комнате (T-014). */
+export interface AbilityIntent {
+  abilityId: string;
+}
+
+/** Возвращает валидный `intent.ability` или undefined — payload без непустой строки `abilityId`. */
+export const parseAbilityIntent = (raw: unknown): AbilityIntent | undefined => {
+  if (typeof raw !== 'object' || raw === null) {
+    return undefined;
+  }
+  const { abilityId } = raw as Record<string, unknown>;
+  if (typeof abilityId !== 'string' || abilityId.length === 0) {
+    return undefined;
+  }
+  return { abilityId };
+};
+
+/**
+ * `intent.dodge`: рывок в направлении `(dirX, dirY)`. Вектор — только направление:
+ * длину сервер нормализует и подставляет свою константу (TECH-SPEC 4 — позиции
+ * авторитетны, клиенту длину не доверяем).
+ */
+export interface DodgeIntent {
+  dirX: number;
+  dirY: number;
+}
+
+/** Возвращает валидный `intent.dodge` или undefined — на мусоре/NaN/нулевом векторе. */
+export const parseDodgeIntent = (raw: unknown): DodgeIntent | undefined => {
+  if (typeof raw !== 'object' || raw === null) {
+    return undefined;
+  }
+  const { dirX, dirY } = raw as Record<string, unknown>;
+  if (typeof dirX !== 'number' || typeof dirY !== 'number') {
+    return undefined;
+  }
+  if (!Number.isFinite(dirX) || !Number.isFinite(dirY)) {
+    return undefined;
+  }
+  if (dirX === 0 && dirY === 0) {
+    return undefined; // нулевой вектор не нормализуем
+  }
+  return { dirX, dirY };
+};
