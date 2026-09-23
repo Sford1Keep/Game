@@ -64,7 +64,7 @@ test('битые конфиги отклоняются целиком', () => {
   assert.equal(parseMobConfig({ id: 'm', name: 'm', faction: 'magic', hp: 40 }), undefined);
 });
 
-/** Конфиг способности в той же форме, в какой он ляжет в `/content/abilities` (файлы — за T-013). */
+/** Стаб-пример из T-012; реальные файлы `content/abilities/` — ниже, за ними приёмка T-013. */
 const ABILITY_JSON = `{
   "id": "rust-jab",
   "name": "Ржавый джеб",
@@ -141,4 +141,27 @@ test('MobConfig требует aggroRadius, rust-scout его несёт', () =>
   const { aggroRadius, ...withoutAggro } = parsed;
   assert.ok(aggroRadius > 0);
   assert.equal(parseMobConfig(withoutAggro), undefined);
+});
+
+test('content/abilities/rust-jab.json — валидный AbilityConfig ближней атаки', () => {
+  const parsed = parseAbilityConfig(readJson('../../../content/abilities/rust-jab.json'));
+  assert.ok(parsed, 'конфиг способности не распознан');
+  const ability: AbilityConfig = parsed;
+  assert.equal(ability.id, toAbilityId('rust-jab')); // имя файла = id
+  assert.equal(ability.radius, 0); // одиночная цель
+  assert.ok(ability.range > 0 && ability.cooldownMs > 0);
+  assert.equal('appliesStatus' in ability, false); // базовая атака без статуса
+});
+
+test('content/abilities/marker-shot.json — AbilityConfig со статусом vulnerable', () => {
+  const parsed = parseAbilityConfig(readJson('../../../content/abilities/marker-shot.json'));
+  assert.ok(parsed, 'конфиг способности не распознан');
+  const ability: AbilityConfig = parsed;
+  assert.equal(ability.id, toAbilityId('marker-shot'));
+  assert.ok(ability.range > 2.5, 'атака дальника: дистанция больше ближней атаки');
+  assert.deepEqual(ability.appliesStatus, {
+    status: 'vulnerable',
+    durationMs: 5000,
+    damageMultiplier: 1.25,
+  });
 });

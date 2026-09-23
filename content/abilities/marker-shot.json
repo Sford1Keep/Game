@@ -1,0 +1,14 @@
+{
+  "id": "marker-shot",
+  "name": "Метка",
+  "damage": 4,
+  "damageType": "neutral",
+  "cooldownMs": 5000,
+  "range": 9,
+  "radius": 0,
+  "appliesStatus": {
+    "status": "vulnerable",
+    "durationMs": 5000,
+    "damageMultiplier": 1.25
+  }
+}
