@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit",
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
-    "test": "tsx --test test/instanceRoom.test.ts test/intentMove.test.ts"
+    "test": "tsx --test test/instanceRoom.test.ts test/intentMove.test.ts test/intentAbility.test.ts"
   },
   "dependencies": {
     "@game/shared": "*",
