@@ -20,6 +20,21 @@ export const AbilityCooldownState = schema(
 );
 
 /**
+ * Активный статус спавна моба в реплицированном виде — рантайм-аналог
+ * `StatusEffect` из shared (T-012, T-016): `vulnerable` множит входящий урон на
+ * `damageMultiplier` до `expiresAtMs`. Клиент по нему рисует индикатор (T-018),
+ * авторитет — сервер (TECH-SPEC 4).
+ */
+export const StatusEffectState = schema(
+  {
+    statusId: t.string(),
+    damageMultiplier: t.number().default(1),
+    expiresAtMs: t.number().default(0),
+  },
+  'StatusEffectState',
+);
+
+/**
  * Состояние одного игрока в комнате; поля реплицируются клиентам через
  * schema sync (TECH-SPEC 4). Schema 5.x: декларативный `schema()` + `t.*`
  * без decorators — совместимо со strict-конфигом репозитория.
@@ -51,6 +66,8 @@ export const MobState = schema(
     y: t.number().default(0),
     hp: t.number().default(0),
     targetId: t.string().default(''),
+    // ключ MapSchema — id статуса (`vulnerable`); множители читает расчёт урона (T-016)
+    statuses: t.map(StatusEffectState),
   },
   'MobState',
 );

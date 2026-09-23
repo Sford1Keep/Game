@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { toMobId, type MobConfig } from '@game/shared';
+import { toMobId, type DamageInstance, type MobConfig } from '@game/shared';
 
+import { createDamageApplier, type DamageApplier } from '../src/damage.js';
 import { stepMob } from '../src/mobAi.js';
 import { MobState, PlayerState } from '../src/state.js';
 
@@ -10,6 +11,15 @@ import { MobState, PlayerState } from '../src/state.js';
  * Юнит AI моба (T-015, баланс из конфига — T-020): `stepMob` вызывается напрямую
  * с фиктивными `nowMs`/`dtMs` — без комнаты, clock и реальных таймеров.
  */
+
+/** Урон моба идёт через настоящий `DamageApplier` (T-016); публикацию собираем вместо клиентов. */
+const published: DamageInstance[] = [];
+const damage: DamageApplier = createDamageApplier({
+  now: () => 1_000,
+  publish: (event) => {
+    published.push(event);
+  },
+});
 
 const CONFIG: MobConfig = {
   id: toMobId('test-mob'),
@@ -51,7 +61,7 @@ test('игрок вне радиуса агро: цели нет, стоит н�
   const player = makePlayer(10, 0);
   const runtime = { readyToAttackAtMs: 0 };
 
-  stepMob(mob, CONFIG, new Map([['s1', player]]), runtime, 1_000, TICK_MS);
+  stepMob(mob, CONFIG, new Map([['s1', player]]), runtime, 1_000, TICK_MS, damage);
 
   assert.equal(mob.targetId, '');
   assert.equal(mob.x, 0);
@@ -63,7 +73,7 @@ test('вход в радиус: цель выбрана, моб сближает
   const player = makePlayer(5, 0);
   const runtime = { readyToAttackAtMs: 0 };
 
-  stepMob(mob, CONFIG, new Map([['s1', player]]), runtime, 1_000, TICK_MS);
+  stepMob(mob, CONFIG, new Map([['s1', player]]), runtime, 1_000, TICK_MS, damage);
 
   assert.equal(mob.targetId, 's1');
   // moveSpeed 3 ед/с * 0.1 с = 0.3 к цели; урон ещё не время — дистанция > attackRange
@@ -77,14 +87,14 @@ test('вплотную: удар раз в attackIntervalMs из конфига,
   const runtime = { readyToAttackAtMs: 0 };
   const players = new Map([['s1', player]]);
 
-  stepMob(mob, CONFIG, players, runtime, 1_000, TICK_MS);
+  stepMob(mob, CONFIG, players, runtime, 1_000, TICK_MS, damage);
   assert.equal(player.hp, 45);
   assert.equal(runtime.readyToAttackAtMs, 1_000 + CONFIG.attackIntervalMs);
 
-  stepMob(mob, CONFIG, players, runtime, 1_500, TICK_MS);
+  stepMob(mob, CONFIG, players, runtime, 1_500, TICK_MS, damage);
   assert.equal(player.hp, 45); // кулдаун удара ещё не истёк
 
-  stepMob(mob, CONFIG, players, runtime, 2_100, TICK_MS);
+  stepMob(mob, CONFIG, players, runtime, 2_100, TICK_MS, damage);
   assert.equal(player.hp, 40);
 });
 
@@ -94,7 +104,7 @@ test('сближение не перелетает цель: шаг ограни
   const player = makePlayer(CONFIG.attackRange + 0.1, 0);
   const runtime = { readyToAttackAtMs: 0 };
 
-  stepMob(mob, CONFIG, new Map([['s1', player]]), runtime, 1_000, 1_000);
+  stepMob(mob, CONFIG, new Map([['s1', player]]), runtime, 1_000, 1_000, damage);
 
   assert.equal(mob.x, CONFIG.attackRange + 0.1);
   assert.equal(mob.y, 0);
@@ -105,22 +115,22 @@ test('гистерезис агро (T-020): между aggroRadius и resetRadi
   const player = makePlayer(5, 0);
   const runtime = { readyToAttackAtMs: 0 };
 
-  stepMob(mob, CONFIG, new Map([['s1', player]]), runtime, 1_000, TICK_MS);
+  stepMob(mob, CONFIG, new Map([['s1', player]]), runtime, 1_000, TICK_MS, damage);
   assert.equal(mob.targetId, 's1');
 
   // игрок за aggroRadius (6), но внутри resetRadius (10) — цель сохранена, моб сближается
   player.x = 8.5;
-  stepMob(mob, CONFIG, new Map([['s1', player]]), runtime, 2_000, TICK_MS);
+  stepMob(mob, CONFIG, new Map([['s1', player]]), runtime, 2_000, TICK_MS, damage);
   assert.equal(mob.targetId, 's1');
   assert.ok(mob.x > 0, 'моб продолжает преследование удержанной цели');
 
   // выход за resetRadius — сброс
   player.x = 11;
-  stepMob(mob, CONFIG, new Map([['s1', player]]), runtime, 3_000, TICK_MS);
+  stepMob(mob, CONFIG, new Map([['s1', player]]), runtime, 3_000, TICK_MS, damage);
   assert.equal(mob.targetId, '');
 
   mob.targetId = 's1'; // цель цела, но игрока в комнате больше нет
-  stepMob(mob, CONFIG, new Map(), runtime, 4_000, TICK_MS);
+  stepMob(mob, CONFIG, new Map(), runtime, 4_000, TICK_MS, damage);
   assert.equal(mob.targetId, '');
 });
 
@@ -129,7 +139,7 @@ test('захват цели только в aggroRadius: игрок в кори�
   const player = makePlayer(8.5, 0); // > aggroRadius 6, < resetRadius 10, целей до этого не было
   const runtime = { readyToAttackAtMs: 0 };
 
-  stepMob(mob, CONFIG, new Map([['s1', player]]), runtime, 1_000, TICK_MS);
+  stepMob(mob, CONFIG, new Map([['s1', player]]), runtime, 1_000, TICK_MS, damage);
 
   assert.equal(mob.targetId, '');
 });
@@ -140,17 +150,17 @@ test('мёртвый игрок (hp <= 0): цель теряется и не в�
   const runtime = { readyToAttackAtMs: 0 };
   const players = new Map([['s1', player]]);
 
-  stepMob(mob, CONFIG, players, runtime, 1_000, TICK_MS);
+  stepMob(mob, CONFIG, players, runtime, 1_000, TICK_MS, damage);
   assert.equal(mob.targetId, 's1');
 
   player.hp = 0; // смерть наступила вне шага AI (T-016 заберёт игрока из state)
-  stepMob(mob, CONFIG, players, runtime, 2_000, TICK_MS);
+  stepMob(mob, CONFIG, players, runtime, 2_000, TICK_MS, damage);
   assert.equal(mob.targetId, '', 'моб потерял цель-труп');
   assert.equal(player.hp, 0, 'по мёртвому игроку урон не идёт');
 
   // тот же мёртвый игрок не может стать новой целью
   mob.targetId = '';
-  stepMob(mob, CONFIG, players, runtime, 3_000, TICK_MS);
+  stepMob(mob, CONFIG, players, runtime, 3_000, TICK_MS, damage);
   assert.equal(mob.targetId, '', 'перецеливания на мёртвого нет');
 });
 
@@ -169,6 +179,7 @@ test('из смешанной компании выбирается ближай
     { readyToAttackAtMs: 0 },
     1_000,
     TICK_MS,
+    damage,
   );
 
   assert.equal(mob.targetId, 'alive');
@@ -189,7 +200,31 @@ test('выбирается ближайший игрок, а не первый �
     { readyToAttackAtMs: 0 },
     1_000,
     TICK_MS,
+    damage,
   );
 
   assert.equal(mob.targetId, 'near');
+});
+
+test('удар моба идёт через единый DamageApplier: hp цели + event.damage с тем же amount (T-016)', () => {
+  const mob = makeMob(0, 0);
+  const player = makePlayer(CONFIG.attackRange - 0.5, 0);
+  const runtime = { readyToAttackAtMs: 0 };
+  published.length = 0;
+
+  stepMob(mob, CONFIG, new Map([['s1', player]]), runtime, 1_000, TICK_MS, damage);
+
+  assert.equal(player.hp, 50 - CONFIG.damage);
+  assert.equal(published.length, 1, 'один удар — одно событие');
+  const event = published[0];
+  assert.ok(event);
+  assert.deepEqual(event.source, { kind: 'mob', entityId: 'test-mob#1' });
+  assert.deepEqual(event.target, { kind: 'player', entityId: 's1' });
+  assert.equal(event.amount, CONFIG.damage, 'на игроке статусов нет — множитель 1');
+  assert.equal(event.type, CONFIG.faction, 'тип урона моба — его фракция');
+
+  // Второй удар до истечения attackIntervalMs: ни hp, ни публикация не двигаются.
+  stepMob(mob, CONFIG, new Map([['s1', player]]), runtime, 1_050, TICK_MS, damage);
+  assert.equal(published.length, 1);
+  assert.equal(player.hp, 50 - CONFIG.damage);
 });
