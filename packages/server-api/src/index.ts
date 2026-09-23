@@ -32,7 +32,7 @@ export const startServer = async (config: AppConfig): Promise<RunningServer> => 
 
   const client = await pool.connect();
   try {
-    const applied = await runMigrations(client);
+    const applied = await runMigrations(client, log);
     if (applied.length > 0) {
       log.info({ migrations: applied }, 'применены миграции');
     }

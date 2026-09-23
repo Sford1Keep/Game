@@ -25,7 +25,7 @@
 | `client` | Phaser-клиент + отделённый от рендера слой игровой логики (game-core) | 1, 3, 9.2 | Подключение, рендер и локальное предсказание движения (T-007, T-008), см. структуру ниже |
 
 
-## `packages/shared` — состав (T-002, T-009, T-010)
+## `packages/shared` — состав (T-002, T-009, T-010, T-011)
 
 Наружу всё отдаётся только через `src/index.ts`; пакеты импортируют `@game/shared`, а не внутренние файлы.
 
@@ -35,21 +35,24 @@
 | `src/ids.ts` | `Id<K>` (брендированная строка), `AccountId` / `CharacterId` / `InstanceId` + конструкторы `toAccountId` / `toCharacterId` / `toInstanceId` на границах. Разные домены между собой не подставляются, голая `string` в `AccountId` не присваивается |
 | `src/status.ts` | `AccountStatus`, `CharacterStatus` — значения предложены исполнителем, утверждены лидом при ревью T-002 |
 | `src/content.ts` | Схема контент-конфигов `/content` (T-009): `ItemConfig`/`MobConfig` (id — `ItemId`/`MobId`), словари `FACTIONS`/`ITEM_KINDS`/`STAT_IDS`, парсеры `parseItemConfig`/`parseMobConfig` — граница `unknown → конфиг` (битый файл отклоняется целиком, возвращая `undefined`) |
-| `test/content.test.ts` | Тестовый стаб приёмки T-009 (`tsx --test`): читаем JSON из `/content`, получаем типизированные конфиги через `@game/shared`; плюс контроль отклонения битых конфигов |
+| `src/events.ts` | Игровые события (TECH-SPEC 10.2): `GameEvent` (`type`/`actorId`/`payload`/`instanceId`/`timestamp`), список `GAME_EVENT_TYPES` (`mob.killed`, `item.looted` — второй тип зарезервирован под ещё не реализованный лут) и `parseGameEvent` — граница `unknown → событие`: неизвестный тип, пустые id, не-объект payload и некорректная дата отклоняются целиком. События вне инстанса несут `instanceId: null` |
+| `test/events.test.ts` | Стаб приёмки T-011: нормализация события, `instanceId = null`, отклонение мусора, фиксация стартового списка типов |
 | `src/logging.ts` | Диагностическое логирование (TECH-SPEC 10.1, T-010): `createLogger(context, options)` — фабрика над `pino`, `LogLevel`/`LOG_LEVELS`, `resolveLogLevel(env)` (`LOG_LEVEL`, по умолчанию `info` в проде и `debug` в dev), `parseLogLevel` с отклонением неизвестного уровня. Только Node.js: браузерный `client` остаётся на `console.warn` |
 | `test/logging.test.ts` | Стаб приёмки T-010: уровень из env, контекст фабрики в каждой записи, брошенная ошибка → structured-запись со стеком и `requestId` (чтение из перехваченного потока, stdout не трогаем) |
 
 
 Файлы `packages/server-api/src/shared-types-stub.ts` и `packages/client/src/shared-types-stub.ts` — проверочные импорт-стабы из критерия приёмки T-002; оба удалены за ненадобностью: серверный — в T-003, клиентский — в T-007, типы теперь используются в реальном коде.
 
-## `packages/server-api` — состав (T-003, T-010)
+## `packages/server-api` — состав (T-003, T-010, T-011)
 
 Запускается через `tsx` (эмита нет, `noEmit` сохранён; `tsx` транслирует и TS-исходники `@game/shared` с enum'ами). Скрипты пакета: `dev` / `start` / `test`. Конфигурация — окружение (`DATABASE_URL`, `JWT_SECRET`, `PORT`, `LOG_LEVEL`, `NODE_ENV`), пример в `packages/server-api/.env.example`. Локальный dev-кластер PostgreSQL поднимается в `.local/pgdata` (порт 5433, каталог в `.gitignore`), команды — в том же `.env.example`.
 
 | Модуль | Содержимое |
 |---|---|
 | `src/config.ts` | `loadConfig(env)` — разбор конфигурации из переменных окружения; `logLevel`/`logPretty` (T-010) и флаг `ephemeralJwtSecret` — предупреждение о временном секрете выдаёт логгер, а не `console.warn` |
-| `src/db/migrate.ts` | Простейший runner SQL-миграций (таблица `schema_migrations`, файл = транзакция) |
+| `src/db/migrate.ts` | Runner SQL-миграций (таблица `schema_migrations`, файл = транзакция). Применение сериализуется advisory-локом `game_schema_migrations`, чтобы параллельный старт (dev + тесты) не применил файл дважды; лок снимается явно в `finally`, потому что клиент возвращается в пул с живой сессией. Каждая миграция логируется, сбой — с текстом ошибки и именем файла |
+| `src/migrations/0002_create_game_events.sql` | Таблица `game_events` (T-011, TECH-SPEC 10.2): `type` с CHECK по `GAME_EVENT_TYPES`, `actor_id`, `instance_id` (nullable), `payload` jsonb, `occurred_at` + служебный `recorded_at`; индексы по `(actor_id, occurred_at)` и `(instance_id, occurred_at)`; append-only держится триггером, который отклоняет UPDATE и DELETE на уровне БД |
+| `src/events/store.ts` | `GameEventStore.record(event)` — единственный путь записи (TECH-SPEC 10.2): только `insert`, без upsert, поэтому повторное событие = вторая строка. HTTP-эндпоинт приёма событий от `server-instance` появляется в T-016, где у него первый потребитель |
 | `src/migrations/0001_create_accounts.sql` | Таблица `accounts` (`id` — текст под `AccountId`, `login` unique, `password_hash`, `status` с CHECK по `AccountStatus`) |
 | `src/accounts/` | Домен аккаунтов: `password.ts` (scrypt-хеширование из `node:crypto`, без нативных зависимостей), `token.ts` (JWT HS256 через `jose`, `sub` = `AccountId`), `service.ts` (регистрация/аутентификация/`resolveSession`, типизированные доменные ошибки) |
 | `src/http/app.ts` | Express-приложение: `POST /accounts/register`, `POST /accounts/login`, `GET /healthz`; маппинг доменных ошибок в 400/401/403/409. Middleware корреляции (T-010): на запрос генерируется `requestId`, кладётся в `req.log` (child-логгер) и в заголовок ответа `x-request-id`, финал запроса логируется с `statusCode`/`elapsedMs`; `accountId` добавится в контекст, когда появится auth-middleware |

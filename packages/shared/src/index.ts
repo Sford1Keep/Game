@@ -25,6 +25,8 @@ export {
   parseItemConfig,
   parseMobConfig,
 } from './content.js';
+export type { GameEventType, GameEvent } from './events.js';
+export { GAME_EVENT_TYPES, parseGameEvent } from './events.js';
 export type { LogLevel, LoggerContext, LoggerOptions } from './logging.js';
 export type { Logger as GameLogger } from 'pino';
 export { LOG_LEVELS, createLogger, parseLogLevel, resolveLogLevel } from './logging.js';
