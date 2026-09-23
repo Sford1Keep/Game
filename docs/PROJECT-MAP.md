@@ -25,7 +25,7 @@
 | `client` | Phaser-клиент + отделённый от рендера слой игровой логики (game-core) | 1, 3, 9.2 | Подключение, рендер и локальное предсказание движения (T-007, T-008), см. структуру ниже |
 
 
-## `packages/shared` — состав (T-002, T-009, T-010, T-011, T-012)
+## `packages/shared` — состав (T-002, T-009, T-010, T-011, T-012, T-013)
 
 Наружу всё отдаётся только через `src/index.ts`; пакеты импортируют `@game/shared`, а не внутренние файлы.
 
@@ -36,7 +36,7 @@
 | `src/status.ts` | `AccountStatus`, `CharacterStatus` — значения предложены исполнителем, утверждены лидом при ревью T-002 |
 | `src/content.ts` | Схема контент-конфигов `/content` (T-009): `ItemConfig`/`MobConfig`/`AbilityConfig` (id — `ItemId`/`MobId`/`AbilityId`), словари `FACTIONS`/`ITEM_KINDS`/`STAT_IDS`, парсеры `parseItemConfig`/`parseMobConfig`/`parseAbilityConfig` — граница `unknown → конфиг` (битый файл отклоняется целиком, возвращая `undefined`). `MobConfig.aggroRadius` (T-012) — радиус агро в мировых единицах; числа способностей и агро — только в конфигах, в парсере они валидируются как неотрицательные (`damageMultiplier` и `durationMs` статуса — строго положительные) |
 | `src/combat.ts` | Боевая лексика (T-012, TECH-SPEC 4, 5): `DamageInstance` (источник/цель/величина/тип), `CombatantRef` (`player` либо `mob`, по `RoomEntityId` — один `MobId` спавнится несколько раз, поэтому ссылка на сущность, а не на конфиг), `DAMAGE_TYPES` (`techno`/`magic`/`neutral` — ось аффинити пока только фракционная, GDD 3), `STATUS_EFFECT_IDS` (старт: `vulnerable`) и `StatusEffect` (`appliedAtMs`/`expiresAtMs`/`damageMultiplier` — множитель лежит у эффекта, чтобы расчёт урона не тянул конфиг наложившей способности), `AbilityCooldown` = `{ abilityId, readyAtMs }`. Модуль ничего не знает о Colyseus и БД; `AbilityConfig` — в `content.ts`, потому что это данные `/content` |
-| `test/content.test.ts` | Стаб приёмки T-009 + T-012: чтение `items/` и `mobs/` из реальных JSON, парсинг `AbilityConfig` из JSON-строки (со статусом и без), отклонение битых конфигов (неизвестный `damageType`/`status`, отрицательный `cooldownMs`, `NaN`, пустой `id`, отсутствующий `aggroRadius`) |
+| `test/content.test.ts` | Стаб приёмки T-009 + T-012 + T-013: чтение `items/`, `mobs/` и `abilities/` из реальных JSON (валидность `rust-jab`/`marker-shot` по схеме способности), парсинг `AbilityConfig` из JSON-строки (со статусом и без), отклонение битых конфигов (неизвестный `damageType`/`status`, отрицательный `cooldownMs`, `NaN`, пустой `id`, отсутствующий `aggroRadius`) |
 | `src/events.ts` | Игровые события (TECH-SPEC 10.2): `GameEvent` (`type`/`actorId`/`payload`/`instanceId`/`timestamp`), список `GAME_EVENT_TYPES` (`mob.killed`, `item.looted` — второй тип зарезервирован под ещё не реализованный лут) и `parseGameEvent` — граница `unknown → событие`: неизвестный тип, пустые id, не-объект payload и некорректная дата отклоняются целиком. События вне инстанса несут `instanceId: null` |
 | `test/events.test.ts` | Стаб приёмки T-011: нормализация события, `instanceId = null`, отклонение мусора, фиксация стартового списка типов |
 | `src/logging.ts` | Диагностическое логирование (TECH-SPEC 10.1, T-010): `createLogger(context, options)` — фабрика над `pino`, `LogLevel`/`LOG_LEVELS`, `resolveLogLevel(env)` (`LOG_LEVEL`, по умолчанию `info` в проде и `debug` в dev), `parseLogLevel` с отклонением неизвестного уровня. Только Node.js: браузерный `client` остаётся на `console.warn`. Рантайм-импорт из барреля `@game/shared` в клиенте безопасен — проверено на `vite build`: `pino` в бандл не попадает (её никто не вызывает), размер +0,07 kB |
@@ -97,16 +97,20 @@
 | Аспект | Формат |
 |---|---|
 | Файл | JSON, UTF-8, один файл = одна сущность |
-| Директории | По типу контента: `items/`, `mobs/`; новые типы (talents/, quests/, territories/, mutators/) добавляются той же конвенцией. `abilities/` — схема и парсер готовы с T-012, файлы появятся в T-013 |
+| Директории | По типу контента: `items/`, `mobs/`, `abilities/` (T-013); новые типы (talents/, quests/, territories/, mutators/) добавляются той же конвенцией |
 | Имя файла | `id` сущности (`items/scrap-machete.json` → `"id": "scrap-machete"`); `id` стабилен — на него ссылаются дроп/инвентарь/арт |
 | Схема | Типы и парсеры — `packages/shared/src/content.ts` (`ItemConfig`, `MobConfig`, `AbilityConfig`); файл, не прошедший парсер, бракуется целиком |
 | Арт | Через необязательный `spriteId`; арта может не быть — рендерит плейсхолдер (TECH-SPEC 9.2) |
-| Примеры | `items/scrap-machete.json` (оружие с фракционным аффиксом), `mobs/rust-scout.json` (моб фракции техно) |
+| Примеры | `items/scrap-machete.json` (оружие с фракционным аффиксом), `mobs/rust-scout.json` (моб фракции техно), `abilities/rust-jab.json` (базовая ближняя атака), `abilities/marker-shot.json` (дальняя атака с меткой `vulnerable`) |
 | Проверка | `npm test -w @game/shared` — тестовый стаб читает примеры и валидирует их через shared |
 
 Читатели конфигов (загрузка на старте сервера/клиента) подключаются в задачах, которым они нужны, — сам формат от этого не меняется.
 
-`mobs/rust-scout.json` несёт `aggroRadius: 6` — значение заведено в T-012 только чтобы обязательное поле было заполнено у существующего конфига; баланс агро и остальные числа моба правит T-013.
+`mobs/rust-scout.json` несёт `aggroRadius: 6` — поле заведено в T-012, в T-013 числа моба (HP/урон/агро) оставлены как базовый баланс Фазы 1; дальнейшая балансировка — по факту тюнинга боёвки (T-016).
+
+Способности (T-013, `abilities/`): `rust-jab` — базовая ближняя атака без статуса, `marker-shot` — дальняя атака, накладывающая `vulnerable` (×1.25 на 5 с) — кооп-связка «один ставит метку, другой реализует» (GDD 4). `damageType: neutral` — классы фракционно нейтральны (GDD 5.1), аффикс фракции даёт предмет, не способность.
+
+Уклонение (`intent.dodge`, T-014/T-017) — конфигом в `abilities/` не является и механикой способности пока не считается: форма `AbilityConfig` описывает поражающий эффект (урон, дистанция до цели, площадь), у уклонения их нет. Числа уклонения (кулдаун, длина рывка) живут серверными константами комнаты; в `/content` уклонение станет способностью, если баланс заведёт его вариативность (разные рывки по классам/билдам).
 
 ## `/docs`
 
