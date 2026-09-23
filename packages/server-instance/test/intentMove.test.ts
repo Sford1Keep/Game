@@ -12,7 +12,7 @@ let running: RunningInstanceServer;
 let url: string;
 
 before(async () => {
-  running = await startServer(loadConfig({ INSTANCE_PORT: '0' }));
+  running = await startServer(loadConfig({ INSTANCE_PORT: '0', LOG_LEVEL: 'silent' }));
   url = `ws://127.0.0.1:${running.port}`;
 });
 

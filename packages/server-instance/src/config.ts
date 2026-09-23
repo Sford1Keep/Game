@@ -1,6 +1,11 @@
+import { resolveLogLevel, type LogLevel } from '@game/shared';
+
 export interface InstanceConfig {
   port: number;
   hostname: string;
+  logLevel: LogLevel;
+  /** Человекочитаемый вывод `pino-pretty` — только для не-прода (TECH-SPEC 10.1). */
+  logPretty: boolean;
 }
 
 // 2600, а не 2567 (дефолт Colyseus-примеров): на dev-машинах его может держать
@@ -10,5 +15,10 @@ export const loadConfig = (env: NodeJS.ProcessEnv): InstanceConfig => {
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
     throw new Error(`INSTANCE_PORT: некорректное значение ${JSON.stringify(env.INSTANCE_PORT)}`);
   }
-  return { port, hostname: env.INSTANCE_HOSTNAME ?? '127.0.0.1' };
+  return {
+    port,
+    hostname: env.INSTANCE_HOSTNAME ?? '127.0.0.1',
+    logLevel: resolveLogLevel(env),
+    logPretty: env.NODE_ENV !== 'production',
+  };
 };

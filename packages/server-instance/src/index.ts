@@ -4,6 +4,8 @@ import { pathToFileURL } from 'node:url';
 
 import { Server, WebSocketTransport } from 'colyseus';
 
+import { createLogger, type GameLogger } from '@game/shared';
+
 import { type InstanceConfig, loadConfig } from './config.js';
 import { BaseInstanceRoom } from './rooms/baseInstanceRoom.js';
 
@@ -18,9 +20,14 @@ export const INSTANCE_ROOM_NAME = 'instance';
 export interface RunningInstanceServer {
   server: Server;
   port: number;
+  log: GameLogger;
 }
 
 export const startServer = async (config: InstanceConfig): Promise<RunningInstanceServer> => {
+  const log = createLogger(
+    { module: 'server-instance' },
+    { level: config.logLevel, pretty: config.logPretty },
+  );
   const server = new Server({
     transport: new WebSocketTransport(),
     greet: false,
@@ -28,6 +35,8 @@ export const startServer = async (config: InstanceConfig): Promise<RunningInstan
     gracefullyShutdown: false,
   });
 
+  // Комнаты создаёт матчмейкер Colyseus, поэтому уровень прокидывается через класс.
+  BaseInstanceRoom.logLevel = config.logLevel;
   server.define(INSTANCE_ROOM_NAME, BaseInstanceRoom);
   await server.listen(config.port, config.hostname);
 
@@ -35,7 +44,7 @@ export const startServer = async (config: InstanceConfig): Promise<RunningInstan
   if (address === undefined || address === null || typeof address === 'string') {
     throw new Error('ожидался TCP-порт после listen');
   }
-  return { server, port: (address as AddressInfo).port };
+  return { server, port: (address as AddressInfo).port, log };
 };
 
 const isMain =
@@ -43,8 +52,8 @@ const isMain =
   import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 
 if (isMain) {
-  const { server, port } = await startServer(loadConfig(process.env));
-  console.warn(`server-instance: комната '${INSTANCE_ROOM_NAME}' слушает ws://127.0.0.1:${port}`);
+  const { server, port, log } = await startServer(loadConfig(process.env));
+  log.info(`комната '${INSTANCE_ROOM_NAME}' слушает ws://127.0.0.1:${port}`);
 
   const shutdown = (): void => {
     void server.gracefullyShutdown(false).finally(() => process.exit(0));

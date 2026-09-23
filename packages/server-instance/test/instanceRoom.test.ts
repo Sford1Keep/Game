@@ -13,7 +13,7 @@ let url: string;
 
 before(async () => {
   // port 0 — ОС выдаёт свободный порт, тесты не конфликтууют с dev-запуском.
-  running = await startServer(loadConfig({ INSTANCE_PORT: '0' }));
+  running = await startServer(loadConfig({ INSTANCE_PORT: '0', LOG_LEVEL: 'silent' }));
   url = `ws://127.0.0.1:${running.port}`;
 });
 
