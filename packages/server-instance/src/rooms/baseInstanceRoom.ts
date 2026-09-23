@@ -40,8 +40,9 @@ export const DODGE_COOLDOWN_KEY = 'dodge';
  */
 export const MOB_TICK_MS = 100;
 /**
- * Класс-заглушка для стартовых HP игрока (T-020): id из `content/classes`,
- * персонажной системы ещё нет (T-004) — ссылка на конфиг по id, не числа.
+ * Класс-заглушка для стартовых HP игрока (T-020): id из `content/classes` —
+ * ссылка на конфиг по id, не числа. С T-004 персонаж с `ClassId` в БД есть, но
+ * комната знает только `sessionId` вошедшего: персонажа в инстанс не переносим.
  */
 export const PLAYER_CLASS_ID = 'melee-initiate';
 /**
@@ -63,7 +64,7 @@ const requireDodge = (catalog: Map<string, DodgeConfig>): DodgeConfig => {
   return dodge;
 };
 
-/** Класс-заглушка игрока обязан быть в `/content/classes` (T-020, до T-004). */
+/** Класс-заглушка игрока обязан быть в `/content/classes` (T-020). */
 const requireClass = (catalog: Map<string, ClassConfig>, id: string): ClassConfig => {
   const config = catalog.get(id);
   if (config === undefined) {

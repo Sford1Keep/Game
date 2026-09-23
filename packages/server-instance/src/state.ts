@@ -28,7 +28,8 @@ export const PlayerState = schema(
   {
     x: t.number().default(0),
     y: t.number().default(0),
-    // HP игрока: база — константа комнаты (персонажной системы ещё нет, T-004)
+    // HP игрока: база — maxHp класса-заглушки из /content/classes (T-020),
+    // персонажа в комнату не приносим — на join есть только sessionId
     hp: t.number().default(0),
     // ключ MapSchema — abilityId; для уклонения — служебный ключ DODGE_COOLDOWN_KEY
     cooldowns: t.map(AbilityCooldownState),
