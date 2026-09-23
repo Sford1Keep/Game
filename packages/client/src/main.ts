@@ -1,5 +1,7 @@
 import type { Vector2 } from '@game/shared';
+import { parseAbilityConfig, parseDodgeConfig } from '@game/shared';
 
+import { CombatController, DODGE_KEY, type CombatAction } from './game-core/combat.js';
 import { MovementController } from './game-core/movement.js';
 import { WorldStore } from './game-core/world.js';
 import { connectInstance } from './net/instanceSession.js';
@@ -17,6 +19,36 @@ const ROOM_NAME = 'instance';
 const search = new URLSearchParams(typeof document === 'undefined' ? '' : document.location.search);
 const serverUrl = search.get('server') ?? DEFAULT_SERVER_URL;
 
+/** Конфиги боёвки раздаются из `/content` (vite publicDir). */
+const ABILITY_URLS = ['/abilities/rust-jab.json', '/abilities/marker-shot.json'];
+const DODGE_URL = '/mechanics/dodge.json';
+
+const fetchConfig = async (url: string): Promise<unknown> => {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`не удалось прочитать конфиг ${url}: ${response.status}`);
+  }
+  return await response.json();
+};
+
+/** Числа кулдаунов — только из конфигов (TECH-SPEC 6), в коде их не держим. */
+const loadCombatActions = async (): Promise<CombatAction[]> => {
+  const actions: CombatAction[] = [];
+  for (const url of ABILITY_URLS) {
+    const ability = parseAbilityConfig(await fetchConfig(url));
+    if (ability === undefined) {
+      throw new Error(`битый конфиг способности: ${url}`);
+    }
+    actions.push({ key: ability.id, cooldownMs: ability.cooldownMs });
+  }
+  const dodge = parseDodgeConfig(await fetchConfig(DODGE_URL));
+  if (dodge === undefined) {
+    throw new Error(`битый конфиг механики: ${DODGE_URL}`);
+  }
+  actions.push({ key: DODGE_KEY, cooldownMs: dodge.cooldownMs });
+  return actions;
+};
+
 const world = new WorldStore();
 
 // Dev-хуки: инспектирование и управление из консоли/автотестов (только Фаза 0).
@@ -25,6 +57,7 @@ declare global {
     __gameWorld?: WorldStore;
     __gameSync?: () => void;
     __gameSetDirection?: (dir: Vector2) => void;
+    __gameCombat?: CombatController;
   }
 }
 window.__gameWorld = world;
@@ -45,6 +78,16 @@ const directionFromKeys = (): Vector2 => ({
     (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) -
     (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0),
 });
+// Направление рывка — последний ненулевой вектор ввода (стоя на месте,
+// уклоняемся туда, куда смотрели; сервер нормализует длину).
+let lastDirection: Vector2 = { x: 1, y: 0 };
+
+// Боёвка: клавиша → действие. Раскладка — клиентский ввод, id способностей — из /content.
+const KEY_ABILITY = new Map<string, string>([
+  ['KeyJ', 'rust-jab'],
+  ['KeyK', 'marker-shot'],
+]);
+const KEY_DODGE = 'Space';
 
 try {
   const session = await connectInstance(serverUrl, ROOM_NAME, world);
@@ -61,10 +104,34 @@ try {
     movement.flush();
   };
 
+  const combat = new CombatController(await loadCombatActions(), {
+    sendAbility: (abilityId) => session.sendAbility(abilityId),
+    sendDodge: (dir) => session.sendDodge(dir),
+    now: () => Date.now(), // та же шкала, что у авторитетных readyAtMs (T-014)
+  });
+  window.__gameCombat = combat;
+
   window.addEventListener('keydown', (e) => {
     if (KEY_MOVE.has(e.code)) {
       keys.add(e.code);
-      movement.setDirection(directionFromKeys());
+      const dir = directionFromKeys();
+      movement.setDirection(dir);
+      if (dir.x !== 0 || dir.y !== 0) {
+        lastDirection = dir;
+      }
+      return;
+    }
+    // Боёвка — по факту нажатия: autorepeat зажатой клавиши не должен
+    // «выстреливать» сам, как только кулдаун истёк (нужен новый press).
+    if (e.repeat) {
+      return;
+    }
+    const abilityId = KEY_ABILITY.get(e.code);
+    if (abilityId !== undefined) {
+      combat.pressAbility(abilityId); // локальный кулдаун решают за нас (T-017)
+    } else if (e.code === KEY_DODGE) {
+      e.preventDefault(); // Space не должен скроллить страницу
+      combat.pressDodge(lastDirection);
     }
   });
   window.addEventListener('keyup', (e) => {
@@ -89,6 +156,8 @@ try {
     movement.update(dt);
     // Рендер показывает предсказание, а не снапшот сервера (отзывчивость, TECH-SPEC 4).
     world.setLocalPosition(movement.position);
+    // Авторитетные кулдауны из state — продление локальной копии (T-017).
+    combat.applyServerCooldowns(session.localCooldowns());
 
     if (document.visibilityState === 'visible') {
       requestAnimationFrame(loop);
