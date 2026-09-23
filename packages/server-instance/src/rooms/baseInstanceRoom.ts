@@ -13,6 +13,14 @@ import {
 
 import { loadAbilityCatalog } from '../abilityCatalog.js';
 import { loadClassCatalog } from '../classCatalog.js';
+import {
+  applyStatus,
+  createDamageApplier,
+  expireStatuses,
+  mobTarget,
+  playerTarget,
+  type DamageApplier,
+} from '../damage.js';
 import { loadMechanicCatalog } from '../dodgeCatalog.js';
 import { loadMobCatalog } from '../mobCatalog.js';
 import { stepMob, type MobRuntime } from '../mobAi.js';
@@ -40,8 +48,9 @@ export const DODGE_COOLDOWN_KEY = 'dodge';
  */
 export const MOB_TICK_MS = 100;
 /**
- * Класс-заглушка для стартовых HP игрока (T-020): id из `content/classes`,
- * персонажной системы ещё нет (T-004) — ссылка на конфиг по id, не числа.
+ * Класс-заглушка для стартовых HP игрока (T-020): id из `content/classes` —
+ * ссылка на конфиг по id, не числа. С T-004 персонаж с `ClassId` в БД есть, но
+ * комната знает только `sessionId` вошедшего: персонажа в инстанс не переносим.
  */
 export const PLAYER_CLASS_ID = 'melee-initiate';
 /**
@@ -53,6 +62,7 @@ export const MOB_SPAWNS: readonly { mobId: string; x: number; y: number }[] = [
 ];
 
 type PlayerInstanceState = InstanceType<typeof PlayerState>;
+type MobStateInstance = InstanceType<typeof MobState>;
 
 /** Конфиг уклонения обязан быть в `/content/mechanics` — без него комната не собирается (T-020). */
 const requireDodge = (catalog: Map<string, DodgeConfig>): DodgeConfig => {
@@ -63,7 +73,7 @@ const requireDodge = (catalog: Map<string, DodgeConfig>): DodgeConfig => {
   return dodge;
 };
 
-/** Класс-заглушка игрока обязан быть в `/content/classes` (T-020, до T-004). */
+/** Класс-заглушка игрока обязан быть в `/content/classes` (T-020). */
 const requireClass = (catalog: Map<string, ClassConfig>, id: string): ClassConfig => {
   const config = catalog.get(id);
   if (config === undefined) {
@@ -78,11 +88,22 @@ const requireClass = (catalog: Map<string, ClassConfig>, id: string): ClassConfi
  * применяет смещение (T-006); с T-014 — `intent.ability` и `intent.dodge`,
  * где сервер проверяет существование способности (каталог `/content`) и
  * кулдаун: до истечения кулдауна намерение отклоняется без побочных эффектов.
- * Сам расчёт урона по способности — T-016, здесь только проверка и учёт кулдауна.
+ * С T-016 принятая способность находит цель (её выбирает сервер — на wire её нет)
+ * и наносит урон через единый `DamageApplier`, он же обслуживает удары мобов.
  */
 export class BaseInstanceRoom extends Room<{ state: InstanceType<typeof InstanceState> }> {
   /** Уровень логгера комнаты; `define(...)` выставляет его из конфига процесса. */
   static logLevel: LogLevel | undefined = undefined;
+
+  /**
+   * Часы комнаты, мс — зависимость, по умолчанию реальные (тот же приём, что
+   * `MovementDeps.now` на клиенте): тесту нужно передвигать время дискретно,
+   * чтобы проверить истечение статусов (T-016) без реальных таймеров.
+   * Прокидывается через класс, как `logLevel`, потому что комнату создаёт
+   * матчмейкер: `options` в `define` для этого потянули бы тестовый шов
+   * в конфигурацию процесса.
+   */
+  static now: () => number = () => Date.now();
 
   private log!: GameLogger;
   private abilities!: Map<string, AbilityConfig>;
@@ -91,6 +112,11 @@ export class BaseInstanceRoom extends Room<{ state: InstanceType<typeof Instance
   private playerClass!: ClassConfig;
   /** Служебное состояние AI по entityId спавна; состав совпадает с `state.mobs`. */
   private mobRuntimes = new Map<string, MobRuntime>();
+  /**
+   * Единое применение урона (T-016): здесь HP опускается и `event.damage`
+   * расходится клиентам — и для ударов мобов, и для реализаций способностей.
+   */
+  private damage!: DamageApplier;
 
   override onCreate(): void {
     this.state = new InstanceState();
@@ -102,6 +128,10 @@ export class BaseInstanceRoom extends Room<{ state: InstanceType<typeof Instance
       { module: 'server-instance', instanceId: this.roomId },
       BaseInstanceRoom.logLevel === undefined ? {} : { level: BaseInstanceRoom.logLevel },
     );
+    this.damage = createDamageApplier({
+      now: () => BaseInstanceRoom.now(),
+      publish: (event) => this.broadcast('event.damage', event),
+    });
 
     this.onMessage('intent.move', (client, raw: unknown) => {
       const intent = parseMoveIntent(raw);
@@ -134,7 +164,9 @@ export class BaseInstanceRoom extends Room<{ state: InstanceType<typeof Instance
           { sessionId: client.sessionId, abilityId: ability.id },
           'способность не готова, intent.ability отклонён',
         );
+        return;
       }
+      this.castAbility(client.sessionId, player, ability);
     });
 
     this.onMessage('intent.dodge', (client, raw: unknown) => {
@@ -159,7 +191,7 @@ export class BaseInstanceRoom extends Room<{ state: InstanceType<typeof Instance
     }
     // Тик AI (T-015): clock комнаты останавливается вместе с dispose комнаты.
     this.clock.setInterval(() => {
-      this.tickMobs(Date.now());
+      this.tickMobs(BaseInstanceRoom.now());
     }, MOB_TICK_MS);
 
     this.log.info('комната создана');
@@ -189,7 +221,7 @@ export class BaseInstanceRoom extends Room<{ state: InstanceType<typeof Instance
    * кулдаун перезапущен; `false` — ещё не готов, побочных эффектов нет.
    */
   private startCooldown(player: PlayerInstanceState, key: string, cooldownMs: number): boolean {
-    const now = Date.now();
+    const now = BaseInstanceRoom.now();
     const existing = player.cooldowns.get(key);
     if (existing !== undefined && existing.readyAtMs > now) {
       return false;
@@ -206,6 +238,60 @@ export class BaseInstanceRoom extends Room<{ state: InstanceType<typeof Instance
     const length = Math.hypot(intent.dirX, intent.dirY);
     player.x += (intent.dirX / length) * this.dodge.distance;
     player.y += (intent.dirY / length) * this.dodge.distance;
+  }
+
+  /**
+   * Реализация принятой способности (T-016): `AbilityIntent` несёт только
+   * `abilityId`, цели на wire нет — поэтому цель выбирает сервер: ближайший
+   * живой спавн в `range` из конфига. Цели нет — намерение отклонено без
+   * урона и без статуса; кулдаун к этому моменту уже запущен (T-014) и его
+   * не откатываем: игрок стрелял вхолостую, способность израсходована.
+   */
+  private castAbility(
+    sessionId: string,
+    player: PlayerInstanceState,
+    ability: AbilityConfig,
+  ): void {
+    const mob = this.nearestMobInRange(player.x, player.y, ability.range);
+    if (mob === undefined) {
+      this.log.info(
+        { sessionId, abilityId: ability.id },
+        'нет цели в радиусе, intent.ability без урона',
+      );
+      return;
+    }
+    this.damage({
+      source: playerTarget(sessionId, player),
+      target: mobTarget(mob),
+      rawAmount: ability.damage,
+      type: ability.damageType,
+    });
+    const status = ability.appliesStatus;
+    // Метка только по живому спавну: снятие мёртвого из state — следующий шаг T-016.
+    if (status !== undefined && mob.hp > 0) {
+      applyStatus(mob, status, BaseInstanceRoom.now());
+    }
+  }
+
+  /** Ближайший живой спавн не дальше `range` от точки источника; мёртвый целью не становится. */
+  private nearestMobInRange(
+    fromX: number,
+    fromY: number,
+    range: number,
+  ): MobStateInstance | undefined {
+    let best: MobStateInstance | undefined;
+    let bestDistance = Infinity;
+    for (const mob of this.state.mobs.values()) {
+      if (mob.hp <= 0) {
+        continue;
+      }
+      const distance = Math.hypot(mob.x - fromX, mob.y - fromY);
+      if (distance <= range && distance < bestDistance) {
+        best = mob;
+        bestDistance = distance;
+      }
+    }
+    return best;
   }
 
   /** Заводит спавн моба по конфигу из `/content/mobs` (T-015); unknown id падает на старте комнаты. */
@@ -236,7 +322,9 @@ export class BaseInstanceRoom extends Room<{ state: InstanceType<typeof Instance
       if (config === undefined || runtime === undefined) {
         continue; // спавн удалён между итерациями — T-016 добавит снятие
       }
-      stepMob(mob, config, players, runtime, nowMs, MOB_TICK_MS);
+      // Статусы живут по часам комнаты, а не по числу тиков (T-016).
+      expireStatuses(mob, nowMs);
+      stepMob(mob, config, players, runtime, nowMs, MOB_TICK_MS, this.damage);
     }
   }
 }

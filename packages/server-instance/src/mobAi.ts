@@ -1,5 +1,6 @@
 import type { MobConfig } from '@game/shared';
 
+import { mobTarget, playerTarget, type DamageApplier } from './damage.js';
 import { type MobState, type PlayerState } from './state.js';
 
 type MobStateInstance = InstanceType<typeof MobState>;
@@ -18,6 +19,8 @@ const distance = (ax: number, ay: number, bx: number, by: number): number =>
  * (`/content/mobs`, T-020), в коде их нет. Время входит параметрами
  * (`nowMs`/`dtMs`) — детерминированный юнит-тест без реальных таймеров,
  * по той же причине, по которой у `MovementController` инжектируемые часы.
+ * Сам удар наносит не модуль, а инжектированный `DamageApplier` (T-016):
+ * «HP опустился и ушёл `event.damage`» — ровно одно место на комнату.
  *
  * Правила: цели нет — выбираем ближайшего живого (`hp > 0`) игрока в радиусе
  * агро (`aggroRadius`). Цель липкая с гистерезисом (T-020): удерживается, пока
@@ -34,6 +37,7 @@ export const stepMob = (
   runtime: MobRuntime,
   nowMs: number,
   dtMs: number,
+  damage: DamageApplier,
 ): void => {
   let target: PlayerStateInstance | undefined =
     mob.targetId === '' ? undefined : players.get(mob.targetId);
@@ -78,6 +82,13 @@ export const stepMob = (
   if (runtime.readyToAttackAtMs > nowMs) {
     return;
   }
-  target.hp -= config.damage;
+  damage({
+    source: mobTarget(mob),
+    target: playerTarget(mob.targetId, target),
+    rawAmount: config.damage,
+    // Отдельного поля типа урона у `MobConfig` нет; ось аффинити пока только
+    // фракционная (GDD 3), поэтому урон моба — его фракция.
+    type: config.faction,
+  });
   runtime.readyToAttackAtMs = nowMs + config.attackIntervalMs;
 };

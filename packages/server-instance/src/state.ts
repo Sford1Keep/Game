@@ -20,6 +20,21 @@ export const AbilityCooldownState = schema(
 );
 
 /**
+ * Активный статус спавна моба в реплицированном виде — рантайм-аналог
+ * `StatusEffect` из shared (T-012, T-016): `vulnerable` множит входящий урон на
+ * `damageMultiplier` до `expiresAtMs`. Клиент по нему рисует индикатор (T-018),
+ * авторитет — сервер (TECH-SPEC 4).
+ */
+export const StatusEffectState = schema(
+  {
+    statusId: t.string(),
+    damageMultiplier: t.number().default(1),
+    expiresAtMs: t.number().default(0),
+  },
+  'StatusEffectState',
+);
+
+/**
  * Состояние одного игрока в комнате; поля реплицируются клиентам через
  * schema sync (TECH-SPEC 4). Schema 5.x: декларативный `schema()` + `t.*`
  * без decorators — совместимо со strict-конфигом репозитория.
@@ -28,7 +43,8 @@ export const PlayerState = schema(
   {
     x: t.number().default(0),
     y: t.number().default(0),
-    // HP игрока: база — константа комнаты (персонажной системы ещё нет, T-004)
+    // HP игрока: база — maxHp класса-заглушки из /content/classes (T-020),
+    // персонажа в комнату не приносим — на join есть только sessionId
     hp: t.number().default(0),
     // ключ MapSchema — abilityId; для уклонения — служебный ключ DODGE_COOLDOWN_KEY
     cooldowns: t.map(AbilityCooldownState),
@@ -50,6 +66,8 @@ export const MobState = schema(
     y: t.number().default(0),
     hp: t.number().default(0),
     targetId: t.string().default(''),
+    // ключ MapSchema — id статуса (`vulnerable`); множители читает расчёт урона (T-016)
+    statuses: t.map(StatusEffectState),
   },
   'MobState',
 );
