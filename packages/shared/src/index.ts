@@ -15,6 +15,8 @@ export type {
   ItemModifier,
   ItemConfig,
   MobConfig,
+  AbilityConfig,
+  AbilityStatus,
 } from './content.js';
 export {
   FACTIONS,
@@ -24,7 +26,26 @@ export {
   toMobId,
   parseItemConfig,
   parseMobConfig,
+  parseAbilityConfig,
 } from './content.js';
+export type {
+  AbilityId,
+  DamageType,
+  RoomEntityId,
+  CombatantKind,
+  CombatantRef,
+  DamageInstance,
+  StatusEffectId,
+  StatusEffect,
+  AbilityCooldown,
+} from './combat.js';
+export {
+  DAMAGE_TYPES,
+  STATUS_EFFECT_IDS,
+  COMBATANT_KINDS,
+  toAbilityId,
+  toRoomEntityId,
+} from './combat.js';
 export type { GameEventType, GameEvent } from './events.js';
 export { GAME_EVENT_TYPES, parseGameEvent } from './events.js';
 export type { LogLevel, LoggerContext, LoggerOptions } from './logging.js';
