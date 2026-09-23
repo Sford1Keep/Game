@@ -28,11 +28,34 @@ export const PlayerState = schema(
   {
     x: t.number().default(0),
     y: t.number().default(0),
+    // HP игрока: база — константа комнаты (персонажной системы ещё нет, T-004)
+    hp: t.number().default(0),
     // ключ MapSchema — abilityId; для уклонения — служебный ключ DODGE_COOLDOWN_KEY
     cooldowns: t.map(AbilityCooldownState),
   },
   'PlayerState',
 );
 
-/** State комнаты-инстанса: игроки, ключ MapSchema — `sessionId` клиента. */
-export const InstanceState = schema({ players: t.map(PlayerState) }, 'InstanceState');
+/**
+ * Состояние одного спавна моба (T-015). Ключ в `InstanceState.mobs` —
+ * `RoomEntityId` (`rust-scout#1`): один `MobId`-конфиг спавнится несколько раз,
+ * поэтому сущность нумеруется (combat.ts, T-012). `targetId` — `sessionId`
+ * игрока или пустая строка, «цели нет».
+ */
+export const MobState = schema(
+  {
+    entityId: t.string(),
+    mobId: t.string(),
+    x: t.number().default(0),
+    y: t.number().default(0),
+    hp: t.number().default(0),
+    targetId: t.string().default(''),
+  },
+  'MobState',
+);
+
+/** State комнаты-инстанса: игроки и мобы, ключ MapSchema — `sessionId` / `RoomEntityId`. */
+export const InstanceState = schema(
+  { players: t.map(PlayerState), mobs: t.map(MobState) },
+  'InstanceState',
+);

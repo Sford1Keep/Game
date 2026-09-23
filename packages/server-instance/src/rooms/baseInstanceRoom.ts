@@ -1,15 +1,30 @@
 import { type Client, Room } from 'colyseus';
 
-import { createLogger, type AbilityConfig, type GameLogger, type LogLevel } from '@game/shared';
+import {
+  createLogger,
+  toRoomEntityId,
+  type AbilityConfig,
+  type GameLogger,
+  type LogLevel,
+  type MobConfig,
+} from '@game/shared';
 
 import { loadAbilityCatalog } from '../abilityCatalog.js';
+import { loadMobCatalog } from '../mobCatalog.js';
+import { stepMob, type MobRuntime } from '../mobAi.js';
 import {
   parseAbilityIntent,
   parseDodgeIntent,
   parseMoveIntent,
   type DodgeIntent,
 } from '../messages.js';
-import { AbilityCooldownState, InstanceState, PlayerState, SPAWN_POINT } from '../state.js';
+import {
+  AbilityCooldownState,
+  InstanceState,
+  MobState,
+  PlayerState,
+  SPAWN_POINT,
+} from '../state.js';
 
 /**
  * Числа уклонения — серверные константы (решение T-013, PROJECT-MAP `/content`):
@@ -19,6 +34,18 @@ export const DODGE_COOLDOWN_MS = 2_000;
 export const DODGE_DISTANCE = 3;
 /** Служебный ключ кулдауна уклонения в `PlayerState.cooldowns` (не abilityId из конфига). */
 export const DODGE_COOLDOWN_KEY = 'dodge';
+
+/** Частота тика AI мобов (T-015); `dt` в шаге сближения считается фиксированной по ней. */
+export const MOB_TICK_MS = 100;
+/** Старт HP игрока: персонажной системы нет (T-004), число — серверная константа комнаты. */
+export const PLAYER_MAX_HP = 50;
+/**
+ * Спавны комнаты на старте (T-015): фиксированный набор, без карт/зон —
+ * их некому расставлять до конфига территории.
+ */
+export const MOB_SPAWNS: readonly { mobId: string; x: number; y: number }[] = [
+  { mobId: 'rust-scout', x: 8, y: 0 },
+];
 
 type PlayerInstanceState = InstanceType<typeof PlayerState>;
 
@@ -36,10 +63,14 @@ export class BaseInstanceRoom extends Room<{ state: InstanceType<typeof Instance
 
   private log!: GameLogger;
   private abilities!: Map<string, AbilityConfig>;
+  private mobConfigs!: Map<string, MobConfig>;
+  /** Служебное состояние AI по entityId спавна; состав совпадает с `state.mobs`. */
+  private mobRuntimes = new Map<string, MobRuntime>();
 
   override onCreate(): void {
     this.state = new InstanceState();
     this.abilities = loadAbilityCatalog();
+    this.mobConfigs = loadMobCatalog();
     this.log = createLogger(
       { module: 'server-instance', instanceId: this.roomId },
       BaseInstanceRoom.logLevel === undefined ? {} : { level: BaseInstanceRoom.logLevel },
@@ -96,6 +127,14 @@ export class BaseInstanceRoom extends Room<{ state: InstanceType<typeof Instance
       this.applyDodge(player, intent);
     });
 
+    for (const spawn of MOB_SPAWNS) {
+      this.spawnMob(spawn);
+    }
+    // Тик AI (T-015): clock комнаты останавливается вместе с dispose комнаты.
+    this.clock.setInterval(() => {
+      this.tickMobs(Date.now());
+    }, MOB_TICK_MS);
+
     this.log.info('комната создана');
   }
 
@@ -103,6 +142,7 @@ export class BaseInstanceRoom extends Room<{ state: InstanceType<typeof Instance
     const player = new PlayerState();
     player.x = SPAWN_POINT.x;
     player.y = SPAWN_POINT.y;
+    player.hp = PLAYER_MAX_HP;
     this.state.players.set(client.sessionId, player);
     this.log.info({ sessionId: client.sessionId, players: this.state.players.size }, 'join');
   }
@@ -139,5 +179,37 @@ export class BaseInstanceRoom extends Room<{ state: InstanceType<typeof Instance
     const length = Math.hypot(intent.dirX, intent.dirY);
     player.x += (intent.dirX / length) * DODGE_DISTANCE;
     player.y += (intent.dirY / length) * DODGE_DISTANCE;
+  }
+
+  /** Заводит спавн моба по конфигу из `/content/mobs` (T-015); unknown id падает на старте комнаты. */
+  private spawnMob(spawn: { mobId: string; x: number; y: number }): void {
+    const config = this.mobConfigs.get(spawn.mobId);
+    if (config === undefined) {
+      throw new Error(`нет конфига моба для спавна: ${spawn.mobId}`);
+    }
+    const index = this.mobRuntimes.size + 1;
+    // RoomEntityId: один MobId-конфиг спавнится несколько раз (combat.ts, T-012)
+    const entityId = toRoomEntityId(`${config.id}#${index}`);
+    const mob = new MobState();
+    mob.entityId = entityId;
+    mob.mobId = config.id;
+    mob.x = spawn.x;
+    mob.y = spawn.y;
+    mob.hp = config.hp;
+    this.state.mobs.set(entityId, mob);
+    this.mobRuntimes.set(entityId, { readyToAttackAtMs: 0 });
+  }
+
+  /** Один тик AI всех спавнов; `dt` фиксирован по частоте clock — детерминизм для тестов (T-015). */
+  private tickMobs(nowMs: number): void {
+    const players = new Map(this.state.players);
+    for (const [entityId, mob] of this.state.mobs) {
+      const config = this.mobConfigs.get(mob.mobId);
+      const runtime = this.mobRuntimes.get(entityId);
+      if (config === undefined || runtime === undefined) {
+        continue; // спавн удалён между итерациями — T-016 добавит снятие
+      }
+      stepMob(mob, config, players, runtime, nowMs, MOB_TICK_MS);
+    }
   }
 }
