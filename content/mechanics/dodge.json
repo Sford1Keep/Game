@@ -1,0 +1,6 @@
+{
+  "id": "dodge",
+  "name": "Уклонение",
+  "distance": 3,
+  "cooldownMs": 2000
+}
