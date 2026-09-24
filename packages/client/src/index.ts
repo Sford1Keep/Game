@@ -3,7 +3,12 @@
  * предсказание движения, боёвка ввода); сетевой адаптер и рендер подключаются
  * в `src/main.ts` (dev-сборка Vite).
  */
-export { WorldStore, type WorldPlayer } from './game-core/world.js';
+export {
+  WorldStore,
+  type DamageEvent,
+  type WorldMob,
+  type WorldPlayer,
+} from './game-core/world.js';
 export {
   LOCAL_SPEED,
   MovementController,

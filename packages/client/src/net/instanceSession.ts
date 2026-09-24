@@ -2,7 +2,7 @@ import { Client } from '@colyseus/sdk';
 import { InstanceState } from '@game/server-instance/state';
 import type { Vector2 } from '@game/shared';
 
-import type { WorldStore } from '../game-core/world.js';
+import type { WorldMob, WorldPlayer, WorldStore } from '../game-core/world.js';
 
 /**
  * Сетевой адаптер: единственный слой клиента, знающий про Colyseus. Переводит
@@ -30,14 +30,48 @@ export const connectInstance = async (
   const client = new Client(serverUrl);
   const room = await client.joinOrCreate(roomName, undefined, InstanceState);
 
+  room.onMessage('event.damage', (raw: unknown) => {
+    if (typeof raw !== 'object' || raw === null) return;
+    const data: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(raw)) data[key] = value;
+    const target = data.target;
+    const targetId =
+      typeof data.targetId === 'string'
+        ? data.targetId
+        : typeof target === 'object' && target !== null && 'entityId' in target
+          ? typeof target.entityId === 'string'
+            ? target.entityId
+            : undefined
+          : undefined;
+    const amount = typeof data.amount === 'number' ? data.amount : undefined;
+    if (targetId !== undefined && amount !== undefined) {
+      world.addDamage({ targetId, amount });
+    }
+  });
+
   return {
     sessionId: room.sessionId,
     sync(): void {
-      const players = [];
-      for (const [id, p] of room.state.players) {
-        players.push({ id, position: { x: p.x, y: p.y } });
+      const players: WorldPlayer[] = [];
+      for (const [id, player] of room.state.players) {
+        players.push({
+          id,
+          position: { x: player.x, y: player.y },
+          hp: player.hp,
+          maxHp: player.hp,
+        });
       }
-      world.replace(players);
+      const mobs: WorldMob[] = [];
+      for (const [id, mob] of room.state.mobs) {
+        mobs.push({
+          id,
+          position: { x: mob.x, y: mob.y },
+          hp: mob.hp,
+          maxHp: mob.hp,
+          statuses: [...mob.statuses.values()].map((status) => status.statusId),
+        });
+      }
+      world.replace(players, mobs);
     },
     sendMove(dx: number, dy: number): void {
       room.send('intent.move', { dx, dy });
